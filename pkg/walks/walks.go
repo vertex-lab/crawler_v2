@@ -29,6 +29,11 @@ type Walker interface {
 	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
 }
 
+// New returns a new walk with a preallocated empty path
+func New(n int) Walk {
+	return Walk{Path: make([]graph.ID, 0, n)}
+}
+
 // Len returns the lenght of the walk
 func (w Walk) Len() int {
 	return len(w.Path)
@@ -49,6 +54,11 @@ func (w Walk) Copy() Walk {
 	path := make([]graph.ID, len(w.Path))
 	copy(path, w.Path)
 	return Walk{ID: w.ID, Path: path}
+}
+
+// Append some nodes to the end of the walk
+func (w *Walk) Append(nodes ...graph.ID) {
+	w.Path = append(w.Path, nodes...)
 }
 
 // Prune the walk at the specified index (excluded).

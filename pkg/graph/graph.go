@@ -12,10 +12,12 @@ type Delta struct {
 	Added   []ID
 }
 
+// Old returns the old state of the delta
 func (d Delta) Old() []ID {
 	return append(d.Common, d.Removed...)
 }
 
+// New returns the new state of the delta
 func (d Delta) New() []ID {
 	return append(d.Common, d.Added...)
 }
