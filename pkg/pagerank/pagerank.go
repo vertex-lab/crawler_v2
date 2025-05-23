@@ -17,10 +17,11 @@ type VisitCounter interface {
 
 	// Visits returns the number of times each specified node was visited during the walks.
 	// The returned slice contains counts in the same order as the input nodes.
+	// If a node is not found, it returns 0 visits.
 	Visits(ctx context.Context, nodes ...graph.ID) ([]int, error)
 }
 
-// Global computes the global pagerank score for the specified nodes.
+// Global computes the global pagerank score for each target node, as the frequency of visits.
 // If a node is not found, its pagerank is assumed to be 0.
 func Global(ctx context.Context, count VisitCounter, nodes ...graph.ID) ([]float64, error) {
 	if len(nodes) == 0 {
@@ -48,6 +49,76 @@ func Global(ctx context.Context, count VisitCounter, nodes ...graph.ID) ([]float
 	}
 
 	return pageranks, nil
+}
+
+type PersonalizedLoader interface {
+	// Follows returns the follow-list of the node
+	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
+
+	// BulkFollows returns the follow-lists of the specified nodes
+	BulkFollows(ctx context.Context, nodes []graph.ID) (map[graph.ID][]graph.ID, error)
+
+	// WalksVisitingAny returns up to limit IDs of walks that visit the specified nodes.
+	// The walks are distributed evenly among the nodes:
+	// - if limit == -1, all walks are returned.
+	// - if limit < len(nodes), no walks are returned
+	WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit int) ([]walks.ID, error)
+
+	// Walks returns the walks associated with the given IDs.
+	Walks(ctx context.Context, IDs ...walks.ID) ([]walks.Walk, error)
+}
+
+/*
+Personalized computes the personalized pagerank of node by simulating a
+long random walk starting at and resetting to itself. This long walk is generated
+from the random walks stored in the storage layer.
+
+# REFERENCES
+
+[1] B. Bahmani, A. Chowdhury, A. Goel; "Fast Incremental and Personalized PageRank"
+URL: http://snap.stanford.edu/class/cs224w-readings/bahmani10pagerank.pdf
+*/
+func Personalized(
+	ctx context.Context,
+	loader PersonalizedLoader,
+	source graph.ID,
+	targetLenght int) (map[graph.ID]float64, error) {
+
+	follows, err := loader.Follows(ctx, source)
+	if err != nil {
+		return nil, fmt.Errorf("Personalized: failed to fetch the follows of source: %w", err)
+	}
+
+	if len(follows) == 0 {
+		// the special distribution of a dandling node
+		return map[graph.ID]float64{source: 1.0}, nil
+	}
+
+	followMap, err := loader.BulkFollows(ctx, follows)
+	if err != nil {
+		return nil, fmt.Errorf("Personalized: failed to fetch the two-hop network of source: %w", err)
+	}
+
+	targetWalks := int(float64(targetLenght) * (1 - walks.Alpha))
+	IDs, err := loader.WalksVisitingAny(ctx, append(follows, source), targetWalks)
+	if err != nil {
+		return nil, fmt.Errorf("Personalized: failed to fetch the walk IDs: %w", err)
+	}
+
+	walks, err := loader.Walks(ctx, IDs...)
+	if err != nil {
+		return nil, fmt.Errorf("Personalized: failed to fetch the walks: %w", err)
+	}
+
+	walker := newWalkerWithFallback(followMap, loader)
+	pool := newWalkPool(walks)
+
+	walk, err := personalizedWalk(ctx, walker, pool, source, targetLenght)
+	if err != nil {
+		return nil, err
+	}
+
+	return frequencies(walk), nil
 }
 
 // pWalk is a personalized walk, which is a random walk that resets to a specified node
@@ -142,6 +213,22 @@ func personalizedWalk(
 			walk.ongoing.Append(node)
 		}
 	}
+}
+
+// frequencies returns the number of times each node is visited divided by the lenght of the path.
+func frequencies(path []graph.ID) map[graph.ID]float64 {
+	if len(path) == 0 {
+		return nil
+	}
+
+	total := len(path)
+	freq := 1.0 / float64(total)
+	pp := make(map[graph.ID]float64, total/100)
+	for _, node := range path {
+		pp[node] += freq
+	}
+
+	return pp
 }
 
 // returns a random element of a slice. It panics if the slice is empty or nil.

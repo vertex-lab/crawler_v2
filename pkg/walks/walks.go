@@ -24,8 +24,7 @@ type Walk struct {
 }
 
 type Walker interface {
-	// Follows returns the follow-list of the specified node, which will be used in
-	// generating random walks
+	// Follows returns the follow-list of the node, used  for generating random walks
 	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
 }
 
@@ -81,8 +80,9 @@ func (w *Walk) Graft(path []graph.ID) {
 	w.Path = w.Path[:pos]
 }
 
-// Generate N random walks for the specified node, using dampening factor alpha.
-// A walk stops early if a cycle is encountered. Walk IDs will be overwritten by the storage layer.
+// Generate [N] random walks for the specified node, using dampening factor [Alpha].
+// A walk stops early if a cycle is encountered.
+// Walk IDs are not set, because it's the responsibility of the storage layer.
 func Generate(ctx context.Context, walker Walker, nodes ...graph.ID) ([]Walk, error) {
 	if len(nodes) == 0 {
 		return nil, nil
@@ -109,7 +109,7 @@ func Generate(ctx context.Context, walker Walker, nodes ...graph.ID) ([]Walk, er
 // Generate a random path of nodes, by:
 // - starting from one of the provided nodes, chosen at random
 // - walking along the social graph
-// - stopping with probabiliy 1-alpha, on dandling nodes, and on cycles
+// - stopping with probabiliy 1-Alpha, on dandling nodes, and on cycles
 func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID, error) {
 	if len(start) == 0 {
 		return nil, nil
@@ -158,7 +158,7 @@ func ToRemove(node graph.ID, walks []Walk) ([]ID, error) {
 	}
 
 	if len(toRemove) != N {
-		return toRemove, fmt.Errorf("walks to be removed (%d) are less than expected (%d)", len(toRemove), N)
+		return toRemove, fmt.Errorf("walks to be removed (%d) are different than expected (%d)", len(toRemove), N)
 	}
 
 	return toRemove, nil
