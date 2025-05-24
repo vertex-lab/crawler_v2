@@ -32,7 +32,7 @@ func TestPagerankStatic(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			store := pagerank.NewWalkStore()
+			store := NewWalkStore()
 
 			walks, err := walks.Generate(ctx, test.walker, test.nodes...)
 			if err != nil {
@@ -45,7 +45,7 @@ func TestPagerankStatic(t *testing.T) {
 				t.Fatalf("expected nil, pr %v", err)
 			}
 
-			distance := pagerank.Distance(ranks, test.ranks)
+			distance := Distance(ranks, test.ranks)
 			if distance > expectedDistance {
 				t.Errorf("expected distance %f, got %f\n", expectedDistance, distance)
 				t.Errorf("expected ranks %v, got %v", test.ranks, ranks)
@@ -84,7 +84,7 @@ func TestPagerankDynamic(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			store := pagerank.NewWalkStore()
+			store := NewWalkStore()
 
 			// apply a random delta to the graph
 			delta := randomElement(test.deltas)
@@ -113,7 +113,7 @@ func TestPagerankDynamic(t *testing.T) {
 				t.Fatalf("expected nil, pr %v", err)
 			}
 
-			distance := pagerank.Distance(ranks, test.ranks)
+			distance := Distance(ranks, test.ranks)
 			if distance > expectedDistance {
 				t.Errorf("inverse delta %v; expected distance %f, got %f\n", inv, expectedDistance, distance)
 				t.Errorf("expected ranks %v,\n got %v", test.ranks, ranks)

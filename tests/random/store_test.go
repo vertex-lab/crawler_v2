@@ -1,4 +1,4 @@
-package pagerank
+package random_test
 
 import (
 	"context"
