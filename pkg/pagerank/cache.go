@@ -6,19 +6,19 @@ import (
 	"github/pippellia-btc/crawler/pkg/walks"
 )
 
-type walkerWithFallback struct {
+type cachedWalker struct {
 	follows  map[graph.ID][]graph.ID
 	fallback walks.Walker
 }
 
-func newWalkerWithFallback(followsMap map[graph.ID][]graph.ID, fallback walks.Walker) *walkerWithFallback {
-	return &walkerWithFallback{
+func newCachedWalker(followsMap map[graph.ID][]graph.ID, fallback walks.Walker) *cachedWalker {
+	return &cachedWalker{
 		follows:  followsMap,
 		fallback: fallback,
 	}
 }
 
-func (w *walkerWithFallback) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+func (w *cachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
 	follows, exists := w.follows[node]
 	if !exists {
 		var err error
@@ -59,24 +59,28 @@ func newWalkPool(walks []walks.Walk) *walkPool {
 	}
 }
 
+// Next returns a path of nodes that starts immediately after node, making sure
+// that the same walk is only used once to avoid bias in the sampling.
+// For example, if the walk is [0,1,2,3,4], node = 1, it returns [2,3,4].
 func (w *walkPool) Next(node graph.ID) ([]graph.ID, bool) {
 	indexes, exists := w.walkIndexes[node]
 	if !exists || len(indexes) == 0 {
 		return nil, false
 	}
 
-	for i, index := range indexes {
-		walk := w.walks[index]
-		if walk.Len() == 0 {
+	for i, idx := range indexes {
+		walk := w.walks[idx]
+		cut := walk.Index(node)
+		if cut == -1 {
 			// walk already used, skip
 			continue
 		}
 
 		// zero the walk so it can't be reused, and reslice the walk indexes
 		// so we don't spend time looking at walks already used.
-		w.walks[index].Path = nil
+		w.walks[idx].Path = nil
 		w.walkIndexes[node] = indexes[i+1:]
-		return walk.Path, true
+		return walk.Path[cut+1:], true
 	}
 
 	// all walks where already used
