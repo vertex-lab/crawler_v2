@@ -4,7 +4,6 @@ import (
 	"context"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/walks"
-	"math"
 	"strconv"
 )
 
@@ -37,9 +36,17 @@ func (s *WalkStore) ReplaceWalks(w []walks.Walk) {
 	}
 }
 
-func (s *WalkStore) WalksVisiting(node graph.ID) []walks.Walk {
+func (s *WalkStore) WalksVisiting(node graph.ID, limit int) []walks.Walk {
+	if limit == -1 {
+		limit = 1000000
+	}
+
 	visiting := make([]walks.Walk, 0, walks.N)
 	for _, walk := range s.Walks {
+		if len(visiting) >= limit {
+			break
+		}
+
 		if walk.Visits(node) {
 			visiting = append(visiting, walk)
 		}
@@ -76,16 +83,58 @@ func (s *WalkStore) Visits(ctx context.Context, nodes ...graph.ID) ([]int, error
 	return visits, nil
 }
 
-// Distance returns the L1 distance between two lists of ranks.
-func Distance(r1, r2 []float64) float64 {
-	if len(r1) != len(r2) {
-		return math.MaxFloat64
+type mockLoader struct {
+	walker walks.Walker
+	store  *WalkStore
+}
+
+func NewMockLoader(walker walks.Walker) *mockLoader {
+	return &mockLoader{
+		walker: walker,
+		store:  NewWalkStore(),
+	}
+}
+
+func (l *mockLoader) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+	return l.walker.Follows(ctx, node)
+}
+
+func (l *mockLoader) BulkFollows(ctx context.Context, nodes []graph.ID) (map[graph.ID][]graph.ID, error) {
+	followsMap := make(map[graph.ID][]graph.ID, len(nodes))
+	for _, node := range nodes {
+		follows, err := l.walker.Follows(ctx, node)
+		if err != nil {
+			return nil, err
+		}
+
+		followsMap[node] = follows
 	}
 
-	var dist float64 = 0
-	for i := range r1 {
-		dist += math.Abs(r1[i] - r2[i])
+	return followsMap, nil
+}
+
+func (l *mockLoader) AddWalks(w []walks.Walk) {
+	l.store.AddWalks(w)
+}
+
+func (l *mockLoader) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit int) ([]walks.Walk, error) {
+	if len(nodes) == 0 {
+		return nil, nil
 	}
 
-	return dist
+	if limit == -1 {
+		limit = 1000000
+	}
+
+	limitPerNode := limit / len(nodes)
+	if limitPerNode <= 0 {
+		return nil, nil
+	}
+
+	visiting := make([]walks.Walk, 0, limit)
+	for _, node := range nodes {
+		visiting = append(visiting, l.store.WalksVisiting(node, limitPerNode)...)
+	}
+
+	return visiting, nil
 }

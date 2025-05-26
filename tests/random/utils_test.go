@@ -3,20 +3,40 @@ package random_test
 import (
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/walks"
+	"math"
 	"strconv"
 )
 
 type Setup struct {
 	walker *walks.MapWalker
-	nodes  []graph.ID
-	ranks  []float64
 	deltas []graph.Delta
+
+	nodes        []graph.ID
+	global       []float64
+	personalized []float64 // according to node "0"
+}
+
+// Distance returns the L1 distance between two lists of ranks.
+func Distance(r1, r2 []float64) float64 {
+	if len(r1) != len(r2) {
+		return math.MaxFloat64
+	}
+
+	var dist float64 = 0
+	for i := range r1 {
+		dist += math.Abs(r1[i] - r2[i])
+	}
+
+	return dist
 }
 
 // Dandlings returns a setup consisting of n dandling nodes
 func Dandlings(n int) Setup {
 	nodes := make([]graph.ID, n)
-	ranks := make([]float64, n)
+	global := make([]float64, n)
+
+	personalized := make([]float64, n)
+	personalized[0] = 1
 
 	added := make([]graph.ID, 0, n-1)
 	deltas := make([]graph.Delta, 0, n-1)
@@ -24,7 +44,7 @@ func Dandlings(n int) Setup {
 	for i := range n {
 		node := graph.ID(strconv.Itoa(i))
 		nodes[i] = node
-		ranks[i] = 1.0 / float64(n)
+		global[i] = 1.0 / float64(n)
 
 		if i > 0 {
 			// all the possible deltas modulo graph isomorphism; 0 --> [1,2, ... k] for 1 <= k <= n
@@ -34,10 +54,11 @@ func Dandlings(n int) Setup {
 	}
 
 	return Setup{
-		walker: walks.NewWalker(make(map[graph.ID][]graph.ID)),
-		nodes:  nodes,
-		ranks:  ranks,
-		deltas: deltas,
+		walker:       walks.NewWalker(make(map[graph.ID][]graph.ID)),
+		deltas:       deltas,
+		nodes:        nodes,
+		global:       global,
+		personalized: personalized,
 	}
 }
 
@@ -45,22 +66,27 @@ func Dandlings(n int) Setup {
 func Cyclic(n int) Setup {
 	mid := graph.ID(strconv.Itoa(n / 2))
 	nodes := make([]graph.ID, n)
-	ranks := make([]float64, n)
+	global := make([]float64, n)
+	personalized := make([]float64, n)
+	a := walks.Alpha
 
 	for i := range n {
 		nodes[i] = graph.ID(strconv.Itoa(i))
-		ranks[i] = 1.0 / float64(n)
+		global[i] = 1.0 / float64(n)
+		personalized[i] = math.Pow(a, float64(i)) * (1.0 - a) / (1.0 - math.Pow(a, float64(n)))
 	}
 
 	return Setup{
 		walker: walks.NewCyclicWalker(n),
-		nodes:  nodes,
-		ranks:  ranks,
 		deltas: []graph.Delta{
 			{Node: "0", Removed: []graph.ID{"1"}},
 			{Node: "0", Common: []graph.ID{"1"}, Added: []graph.ID{mid}},
 			{Node: "0", Removed: []graph.ID{"1"}, Added: []graph.ID{mid}},
 		},
+
+		nodes:        nodes,
+		global:       global,
+		personalized: personalized,
 	}
 }
 
@@ -74,8 +100,6 @@ var Acyclic1 = Setup{
 		"3": {"1"},
 		"4": {},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3", "4"},
-	ranks: []float64{0.11185, 0.36950, 0.15943, 0.24736, 0.11185},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}},
@@ -106,6 +130,9 @@ var Acyclic1 = Setup{
 		{Node: "2", Removed: []graph.ID{"3"}, Added: []graph.ID{"4"}},
 		{Node: "2", Removed: []graph.ID{"3"}, Added: []graph.ID{"1", "4"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3", "4"},
+	global:       []float64{0.11185, 0.36950, 0.15943, 0.24736, 0.11185},
+	personalized: []float64{0.39709, 0.29070, 0.16876, 0.14345, 0.0},
 }
 
 var Acyclic2 = Setup{
@@ -117,8 +144,6 @@ var Acyclic2 = Setup{
 		"4": {"3", "5"},
 		"5": {},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3", "4", "5"},
-	ranks: []float64{0.12987, 0.18506, 0.18506, 0.18506, 0.12987, 0.18506},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}},
@@ -136,6 +161,9 @@ var Acyclic2 = Setup{
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}, Added: []graph.ID{"3", "5"}},
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}, Added: []graph.ID{"3", "4", "5"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3", "4", "5"},
+	global:       []float64{0.12987, 0.18506, 0.18506, 0.18506, 0.12987, 0.18506},
+	personalized: []float64{0.54054, 0.22973, 0.22973, 0.0, 0.0, 0.0},
 }
 
 var Acyclic3 = Setup{
@@ -145,8 +173,6 @@ var Acyclic3 = Setup{
 		"2": {},
 		"3": {"1", "2"},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3"},
-	ranks: []float64{0.17544, 0.32456, 0.32456, 0.17544},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}},
@@ -158,6 +184,9 @@ var Acyclic3 = Setup{
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}, Added: []graph.ID{"3"}},
 		{Node: "0", Removed: []graph.ID{"1", "2"}, Added: []graph.ID{"3"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3"},
+	global:       []float64{0.17544, 0.32456, 0.32456, 0.17544},
+	personalized: []float64{0.54054, 0.22973, 0.22973, 0.0},
 }
 
 var Acyclic4 = Setup{
@@ -167,8 +196,6 @@ var Acyclic4 = Setup{
 		"2": {},
 		"3": {"1"},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3"},
-	ranks: []float64{0.17544, 0.39912, 0.25, 0.17544},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2"}},
@@ -185,6 +212,9 @@ var Acyclic4 = Setup{
 		{Node: "3", Removed: []graph.ID{"1"}, Added: []graph.ID{"0"}},
 		{Node: "3", Removed: []graph.ID{"1"}, Added: []graph.ID{"0", "2"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3"},
+	global:       []float64{0.17544, 0.39912, 0.25, 0.17544},
+	personalized: []float64{0.54054, 0.22973, 0.22973, 0.0},
 }
 
 var Acyclic5 = Setup{
@@ -194,8 +224,6 @@ var Acyclic5 = Setup{
 		"2": {},
 		"3": {"2"},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3"},
-	ranks: []float64{0.21489, 0.11616, 0.37015, 0.29881},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"3"}},
@@ -212,6 +240,9 @@ var Acyclic5 = Setup{
 		{Node: "1", Removed: []graph.ID{"0"}, Added: []graph.ID{"3"}},
 		{Node: "1", Removed: []graph.ID{"0"}, Added: []graph.ID{"2", "3"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3"},
+	global:       []float64{0.21489, 0.11616, 0.37015, 0.29881},
+	personalized: []float64{0.38873, 0.0, 0.28085, 0.33042},
 }
 
 var Acyclic6 = Setup{
@@ -222,8 +253,6 @@ var Acyclic6 = Setup{
 		"3": {"1", "4"},
 		"4": {"2"},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3", "4"},
-	ranks: []float64{0.18820, 0.12128, 0.32417, 0.08511, 0.28125},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"4"}},
@@ -255,6 +284,9 @@ var Acyclic6 = Setup{
 		{Node: "3", Removed: []graph.ID{"1", "4"}, Added: []graph.ID{"2"}},
 		{Node: "3", Removed: []graph.ID{"1", "4"}, Added: []graph.ID{"0", "2"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3", "4"},
+	global:       []float64{0.18820, 0.12128, 0.32417, 0.08511, 0.28125},
+	personalized: []float64{0.38873, 0.0, 0.28086, 0.0, 0.33042},
 }
 
 var Acyclic7 = Setup{
@@ -265,8 +297,6 @@ var Acyclic7 = Setup{
 		"3": {},
 		"4": {"0", "1", "2", "3"},
 	}),
-	nodes: []graph.ID{"0", "1", "2", "3", "4"},
-	ranks: []float64{0.17622, 0.22615, 0.22615, 0.22615, 0.14534},
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Removed: []graph.ID{"1"}, Common: []graph.ID{"2", "3"}},
@@ -281,4 +311,7 @@ var Acyclic7 = Setup{
 		{Node: "1", Added: []graph.ID{"2"}},
 		{Node: "1", Added: []graph.ID{"2", "3"}},
 	},
+	nodes:        []graph.ID{"0", "1", "2", "3", "4"},
+	global:       []float64{0.17622, 0.22615, 0.22615, 0.22615, 0.14534},
+	personalized: []float64{0.54054, 0.15315, 0.15315, 0.15315, 0.0},
 }

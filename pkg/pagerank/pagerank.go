@@ -93,7 +93,7 @@ func PersonalizedWithTargets(
 /*
 Personalized computes the personalized pagerank of node by simulating a
 long random walk starting at and resetting to itself. This long walk is generated
-from the random walks stored in the storage layer.
+using the random walks in the storage layer whenever possible.
 
 # REFERENCES
 
