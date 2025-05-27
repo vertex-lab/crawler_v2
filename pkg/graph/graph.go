@@ -1,33 +1,70 @@
 package graph
 
+import (
+	"time"
+)
+
+const (
+	// types of status
+	StatusActive   string = "active" // meaning, we generate random walks for this node
+	StatusInactive string = "inactive"
+
+	// internal record kinds
+	Addition  int = -3
+	Promotion int = -2
+	Demotion  int = -1
+)
+
 type ID string
 
-// Delta represent the changes a Node made to its follow list.
-// It Removed some nodes, and Added some others.
-// This means the old follow list is Removed + Common, while the new is Common + Added
+func (id ID) MarshalBinary() ([]byte, error) { return []byte(id), nil }
+
+// Node contains the metadata about a node, including a collection of Records.
+type Node struct {
+	ID      ID
+	Pubkey  string
+	Status  string // either [StatusActive] or [StatusInactive]
+	Records []Record
+}
+
+// Record contains the timestamp of a node update.
+type Record struct {
+	Kind      int // either [Addition], [Promotion] or [Demotion]
+	Timestamp time.Time
+}
+
+// Delta represents updates to apply to a Node.
+// Add and Remove contain node IDs to add to or remove from the node’s relationships (e.g., follow list).
 type Delta struct {
-	Node    ID
-	Removed []ID
-	Common  []ID
-	Added   []ID
+	Kind   int
+	Node   ID
+	Remove []ID
+	Keep   []ID
+	Add    []ID
+}
+
+// Size returns the number of relationships changed by delta
+func (d Delta) Size() int {
+	return len(d.Remove) + len(d.Add)
 }
 
 // Old returns the old state of the delta
 func (d Delta) Old() []ID {
-	return append(d.Common, d.Removed...)
+	return append(d.Keep, d.Remove...)
 }
 
 // New returns the new state of the delta
 func (d Delta) New() []ID {
-	return append(d.Common, d.Added...)
+	return append(d.Keep, d.Add...)
 }
 
 // Inverse of the delta. If a delta and it's inverse are applied, the graph returns to its original state.
 func (d Delta) Inverse() Delta {
 	return Delta{
-		Node:    d.Node,
-		Common:  d.Common,
-		Removed: d.Added,
-		Added:   d.Removed,
+		Kind:   d.Kind,
+		Node:   d.Node,
+		Keep:   d.Keep,
+		Remove: d.Add,
+		Add:    d.Remove,
 	}
 }

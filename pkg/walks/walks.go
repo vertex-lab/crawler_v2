@@ -179,7 +179,7 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 		}
 
 		shouldResample = rand.Float64() < resampleProbability
-		isInvalid = (pos < walk.Len()-1) && slices.Contains(delta.Removed, walk.Path[pos+1])
+		isInvalid = (pos < walk.Len()-1) && slices.Contains(delta.Remove, walk.Path[pos+1])
 
 		switch {
 		case shouldResample:
@@ -188,7 +188,7 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 			updated.Prune(pos + 1)
 
 			if rand.Float64() < Alpha {
-				new, err := generate(ctx, walker, delta.Added...)
+				new, err := generate(ctx, walker, delta.Add...)
 				if err != nil {
 					return nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
 				}
@@ -203,7 +203,7 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 			updated := walk.Copy()
 			updated.Prune(pos + 1)
 
-			new, err := generate(ctx, walker, delta.Common...)
+			new, err := generate(ctx, walker, delta.Keep...)
 			if err != nil {
 				return nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
 			}
@@ -223,24 +223,24 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 // Our goal is to have 1/3 of the walks that continue go to each of 1, 2 and 3.
 // This means we have to re-do 2/3 of the walks and make them continue towards 2 or 3.
 func resampleProbability(delta graph.Delta) float64 {
-	if len(delta.Added) == 0 {
+	if len(delta.Add) == 0 {
 		return 0
 	}
 
-	c := float64(len(delta.Common))
-	a := float64(len(delta.Added))
+	c := float64(len(delta.Keep))
+	a := float64(len(delta.Add))
 	return a / (a + c)
 }
 
 func expectedUpdates(walks []Walk, delta graph.Delta) int {
-	if len(delta.Common) == 0 {
+	if len(delta.Keep) == 0 {
 		// no nodes have remained, all walks must be re-computed
 		return len(walks)
 	}
 
-	r := float64(len(delta.Removed))
-	c := float64(len(delta.Common))
-	a := float64(len(delta.Added))
+	r := float64(len(delta.Remove))
+	c := float64(len(delta.Keep))
+	a := float64(len(delta.Add))
 
 	invalidProbability := Alpha * r / (r + c)
 	resampleProbability := a / (a + c)

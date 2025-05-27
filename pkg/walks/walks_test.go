@@ -62,9 +62,9 @@ func TestUpdateRemove(t *testing.T) {
 	})
 
 	delta := graph.Delta{
-		Node:    "0",
-		Removed: []graph.ID{"1"}, // the old follows were "1" and "3"
-		Common:  []graph.ID{"3"},
+		Node:   "0",
+		Remove: []graph.ID{"1"}, // the old follows were "1" and "3"
+		Keep:   []graph.ID{"3"},
 	}
 
 	walks := []Walk{
