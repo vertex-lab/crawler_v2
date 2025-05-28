@@ -131,7 +131,7 @@ func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID
 	}
 
 	node := randomElement(start)
-	path := make([]graph.ID, 0, averageLenght(Alpha))
+	path := make([]graph.ID, 0, expectedLenght(Alpha))
 	path = append(path, node)
 
 	for {
@@ -182,18 +182,15 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 	toUpdate := make([]Walk, 0, expectedUpdates(walks, delta))
 	resampleProbability := resampleProbability(delta)
 
-	var pos int
-	var isInvalid, shouldResample bool
-
 	for _, walk := range walks {
-		pos = walk.Index(delta.Node)
+		pos := walk.Index(delta.Node)
 		if pos == -1 {
 			// the walk doesn't visit node, skip
 			continue
 		}
 
-		shouldResample = rand.Float64() < resampleProbability
-		isInvalid = (pos < walk.Len()-1) && slices.Contains(delta.Remove, walk.Path[pos+1])
+		shouldResample := rand.Float64() < resampleProbability
+		isInvalid := (pos < walk.Len()-1) && slices.Contains(delta.Remove, walk.Path[pos+1])
 
 		switch {
 		case shouldResample:
@@ -282,7 +279,7 @@ func findCycle[S []K, K comparable](s S) int {
 	return -1
 }
 
-func averageLenght(alpha float64) int {
+func expectedLenght(alpha float64) int {
 	switch {
 	case alpha < 0 || alpha > 1:
 		panic("alpha must be between 0 and 1 (excluded)")
