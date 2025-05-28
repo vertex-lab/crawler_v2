@@ -2,6 +2,7 @@ package walks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"math/rand/v2"
@@ -11,6 +12,8 @@ import (
 var (
 	Alpha = 0.85 // the dampening factor
 	N     = 100  // the walks per node
+
+	ErrInvalidRemoval = errors.New(fmt.Sprintf("the walks to be removed are different than the expected number %d", N))
 )
 
 // ID represent how walks are identified in the storage layer
@@ -26,11 +29,6 @@ type Walk struct {
 type Walker interface {
 	// Follows returns the follow-list of the node, used  for generating random walks
 	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
-}
-
-// New returns a new walk with a preallocated empty path
-func New(n int) Walk {
-	return Walk{Path: make([]graph.ID, 0, n)}
 }
 
 // Len returns the lenght of the walk
@@ -78,6 +76,23 @@ func (w *Walk) Graft(path []graph.ID) {
 	}
 
 	w.Path = w.Path[:pos]
+}
+
+// Divergence returns the first index where w1 and w2 are different, -1 if equal.
+func Divergence(w1, w2 Walk) int {
+	min := min(w1.Len(), w2.Len())
+	for i := range min {
+		if w1.Path[i] != w2.Path[i] {
+			return i
+		}
+	}
+
+	if w1.Len() == w2.Len() {
+		// they are all equal, so no divergence
+		return -1
+	}
+
+	return min
 }
 
 // Generate [N] random walks for the specified node, using dampening factor [Alpha].
@@ -146,19 +161,18 @@ func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID
 	return path, nil
 }
 
-// ToRemove returns the IDs of walks that needs to be removed.
+// ToRemove returns the walks that need to be removed.
 // It returns an error if the number of walks to remove differs from the expected [N].
-func ToRemove(node graph.ID, walks []Walk) ([]ID, error) {
-	toRemove := make([]ID, 0, N)
-
+func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
+	toRemove := make([]Walk, 0, N)
 	for _, walk := range walks {
-		if walk.Index(node) != -1 {
-			toRemove = append(toRemove, walk.ID)
+		if walk.Index(node) == 0 {
+			toRemove = append(toRemove, walk)
 		}
 	}
 
 	if len(toRemove) != N {
-		return toRemove, fmt.Errorf("walks to be removed (%d) are different than expected (%d)", len(toRemove), N)
+		return nil, fmt.Errorf("ToRemove: %w: %d", ErrInvalidRemoval, len(toRemove))
 	}
 
 	return toRemove, nil

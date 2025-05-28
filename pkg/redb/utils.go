@@ -2,13 +2,19 @@ package redb
 
 import (
 	"context"
+	"errors"
 	"github/pippellia-btc/crawler/pkg/graph"
+	"github/pippellia-btc/crawler/pkg/walks"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var (
 	testAddress = "localhost:6380"
+
+	ErrValueIsNil       = errors.New("value is nil")
+	ErrValueIsNotString = errors.New("failed to convert to string")
 )
 
 // flushAll deletes all the keys of all existing databases. This command never fails.
@@ -28,8 +34,12 @@ func followers[ID string | graph.ID](id ID) string {
 	return KeyFollowersPrefix + string(id)
 }
 
-// ids converts a slice of strings to IDs
-func toIDs(s []string) []graph.ID {
+func walksVisiting[ID string | graph.ID](id ID) string {
+	return KeyWalksVisitingPrefix + string(id)
+}
+
+// toNodes converts a slice of strings to node IDs
+func toNodes(s []string) []graph.ID {
 	IDs := make([]graph.ID, len(s))
 	for i, e := range s {
 		IDs[i] = graph.ID(e)
@@ -37,8 +47,17 @@ func toIDs(s []string) []graph.ID {
 	return IDs
 }
 
+// toWalks converts a slice of strings to walk IDs
+func toWalks(s []string) []walks.ID {
+	IDs := make([]walks.ID, len(s))
+	for i, e := range s {
+		IDs[i] = walks.ID(e)
+	}
+	return IDs
+}
+
 // strings converts graph IDs to a slice of strings
-func toStrings(ids []graph.ID) []string {
+func toStrings[ID graph.ID | walks.ID](ids []ID) []string {
 	s := make([]string, len(ids))
 	for i, id := range ids {
 		s[i] = string(id)
@@ -97,4 +116,50 @@ func parseTimestamp(unix string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return time.Unix(ts, 0), nil
+}
+
+func formatWalk(walk walks.Walk) string {
+	nodes := make([]string, walk.Len())
+	for i, node := range walk.Path {
+		nodes[i] = string(node)
+	}
+	return strings.Join(nodes, ",")
+}
+
+func parseWalk(s string) walks.Walk {
+	nodes := strings.Split(s, ",")
+	walk := walks.Walk{Path: make([]graph.ID, len(nodes))}
+	for i, node := range nodes {
+		walk.Path[i] = graph.ID(node)
+	}
+	return walk
+}
+
+func parseString(v any) (string, error) {
+	if v == nil {
+		return "", ErrValueIsNil
+	}
+
+	str, ok := v.(string)
+	if !ok {
+		return "", ErrValueIsNotString
+	}
+
+	return str, nil
+}
+
+func parseFloat(v any) (float64, error) {
+	str, err := parseString(v)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(str, 64)
+}
+
+func parseInt(v any) (int, error) {
+	str, err := parseString(v)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(str)
 }

@@ -318,12 +318,12 @@ func TestPubkeys(t *testing.T) {
 // ------------------------------------- HELPERS -------------------------------
 
 func Empty() (RedisDB, error) {
-	return New(&redis.Options{Addr: testAddress}), nil
+	return RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}, nil
 }
 
 func OneNode() (RedisDB, error) {
-	db := New(&redis.Options{Addr: testAddress})
-	if _, err := db.AddNode(context.Background(), "0"); err != nil {
+	db := RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}
+	if _, err := db.AddNode(ctx, "0"); err != nil {
 		db.flushAll()
 		return RedisDB{}, err
 	}
@@ -332,9 +332,7 @@ func OneNode() (RedisDB, error) {
 }
 
 func Simple() (RedisDB, error) {
-	ctx := context.Background()
-	db := New(&redis.Options{Addr: testAddress})
-
+	db := RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	for _, pk := range []string{"0", "1", "2"} {
 		if _, err := db.AddNode(ctx, pk); err != nil {
 			db.flushAll()

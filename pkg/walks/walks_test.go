@@ -2,6 +2,7 @@ package walks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"math"
@@ -53,6 +54,53 @@ func TestGenerate(t *testing.T) {
 	})
 }
 
+func TestToRemove(t *testing.T) {
+	N = 3
+	tests := []struct {
+		name     string
+		walks    []Walk
+		toRemove []Walk
+		err      error
+	}{
+		{
+			name: "no walks",
+			err:  ErrInvalidRemoval,
+		},
+		{
+			name:  "too few walks to remove",
+			walks: []Walk{{Path: []graph.ID{"0", "1"}}},
+			err:   ErrInvalidRemoval,
+		},
+		{
+			name: "valid",
+			walks: []Walk{
+				{Path: []graph.ID{"0", "1"}},
+				{Path: []graph.ID{"0", "2"}},
+				{Path: []graph.ID{"0", "3"}},
+				{Path: []graph.ID{"1", "0"}},
+			},
+			toRemove: []Walk{
+				{Path: []graph.ID{"0", "1"}},
+				{Path: []graph.ID{"0", "2"}},
+				{Path: []graph.ID{"0", "3"}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			toRemove, err := ToRemove("0", test.walks)
+			if !errors.Is(err, test.err) {
+				t.Fatalf("expected error %v, got %v", test.err, err)
+			}
+
+			if !reflect.DeepEqual(toRemove, test.toRemove) {
+				t.Fatalf("expected walks to remove %v, got %v", test.toRemove, toRemove)
+			}
+		})
+	}
+}
+
 func TestUpdateRemove(t *testing.T) {
 	walker := NewWalker(map[graph.ID][]graph.ID{
 		"0": {"3"},
@@ -82,6 +130,26 @@ func TestUpdateRemove(t *testing.T) {
 
 	if !reflect.DeepEqual(toUpdate, expected) {
 		t.Errorf("expected %v, got %v", expected, toUpdate)
+	}
+}
+
+func TestDivergence(t *testing.T) {
+	tests := []struct {
+		w1       Walk
+		w2       Walk
+		expected int
+	}{
+		{w1: Walk{Path: []graph.ID{"0"}}, w2: Walk{Path: []graph.ID{"0", "1"}}, expected: 1},
+		{w1: Walk{Path: []graph.ID{"0", "1", "69"}}, w2: Walk{Path: []graph.ID{"0", "1"}}, expected: 2},
+		{w1: Walk{Path: []graph.ID{"0", "1", "69"}}, w2: Walk{Path: []graph.ID{"0", "1", "420"}}, expected: 2},
+		{w1: Walk{Path: []graph.ID{"a", "b", "c"}}, w2: Walk{Path: []graph.ID{"a", "b", "c"}}, expected: -1},
+		{expected: -1},
+	}
+
+	for i, test := range tests {
+		if div := Divergence(test.w1, test.w2); div != test.expected {
+			t.Fatalf("test %d: expected %d, got %v", i, test.expected, div)
+		}
 	}
 }
 

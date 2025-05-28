@@ -15,20 +15,20 @@ import (
 
 const (
 	// redis variable names
-	KeyDatabase        string = "database"   // TODO: this can be removed
-	KeyLastNodeID      string = "lastNodeID" // TODO: change it to "next" inside "node" hash
-	KeyKeyIndex        string = "keyIndex"   // TODO: change to key_index
-	KeyNodePrefix      string = "node:"
-	KeyFollowsPrefix   string = "follows:"
-	KeyFollowersPrefix string = "followers:"
+	KeyDatabase        = "database"   // TODO: this can be removed
+	KeyLastNodeID      = "lastNodeID" // TODO: change it to "next" inside "node" hash
+	KeyKeyIndex        = "keyIndex"   // TODO: change to key_index
+	KeyNodePrefix      = "node:"
+	KeyFollowsPrefix   = "follows:"
+	KeyFollowersPrefix = "followers:"
 
 	// redis node HASH fields
-	NodeID          string = "id"
-	NodePubkey      string = "pubkey"
-	NodeStatus      string = "status"
-	NodePromotionTS string = "promotion_TS" // TODO: change to promotion
-	NodeDemotionTS  string = "demotion_TS"  // TODO: change to demotion
-	NodeAddedTS     string = "added_TS"     // TODO: change to addition
+	NodeID          = "id"
+	NodePubkey      = "pubkey"
+	NodeStatus      = "status"
+	NodePromotionTS = "promotion_TS" // TODO: change to promotion
+	NodeDemotionTS  = "demotion_TS"  // TODO: change to demotion
+	NodeAddedTS     = "added_TS"     // TODO: change to addition
 )
 
 var (
@@ -41,7 +41,11 @@ type RedisDB struct {
 }
 
 func New(opt *redis.Options) RedisDB {
-	return RedisDB{client: redis.NewClient(opt)}
+	r := RedisDB{client: redis.NewClient(opt)}
+	if err := r.validateWalks(); err != nil {
+		panic(err)
+	}
+	return r
 }
 
 // Size returns the DBSize of redis, which is the total number of keys
@@ -178,7 +182,7 @@ func (r RedisDB) members(ctx context.Context, key func(graph.ID) string, node gr
 		}
 	}
 
-	return toIDs(members), nil
+	return toNodes(members), nil
 }
 
 // FollowCounts returns the number of follows each node has. If a node is not found, it returns 0.
