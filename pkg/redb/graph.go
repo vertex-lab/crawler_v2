@@ -101,12 +101,26 @@ func (r RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, err
 	return parseNode(fields)
 }
 
-func (r RedisDB) containsNode(ctx context.Context, ID graph.ID) (bool, error) {
-	exists, err := r.client.Exists(ctx, node(ID)).Result()
-	if err != nil {
-		return false, fmt.Errorf("failed to check for the existence of %v: %w", node(ID), err)
+func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
+	if len(IDs) == 0 {
+		return nil
 	}
-	return exists == 1, nil
+
+	nodes := make([]string, len(IDs))
+	for i, ID := range IDs {
+		nodes[i] = node(ID)
+	}
+
+	exists, err := r.client.Exists(ctx, nodes...).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check for the existence of %d nodes: %w", len(IDs), err)
+	}
+
+	if int(exists) < len(IDs) {
+		return ErrNodeNotFound
+	}
+
+	return nil
 }
 
 // AddNode adds a new inactive node to the database and returns its assigned ID
@@ -174,13 +188,8 @@ func (r RedisDB) members(ctx context.Context, key func(graph.ID) string, node gr
 
 	if len(members) == 0 {
 		// check if there are no members because node doesn't exists
-		ok, err := r.containsNode(ctx, node)
-		if err != nil {
-			return nil, err
-		}
-
-		if !ok {
-			return nil, fmt.Errorf("failed to fetch %s: %w", key(node), ErrNodeNotFound)
+		if err := r.ensureExists(ctx, node); err != nil {
+			return nil, fmt.Errorf("failed to fetch %s: %w", key(node), err)
 		}
 	}
 
@@ -210,27 +219,23 @@ func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nod
 			return nil, fmt.Errorf("failed to fetch the %s of %d nodes: %w", key(""), len(nodes), err)
 		}
 
-		var empty []string
+		var empty []graph.ID
 		members := make([][]graph.ID, len(nodes))
 
 		for i, cmd := range cmds {
 			m := cmd.Val()
 			if len(m) == 0 {
 				// empty slice might mean node not found.
-				empty = append(empty, node(nodes[i]))
+				empty = append(empty, nodes[i])
 			}
 
 			members[i] = toNodes(m)
 		}
 
 		if len(empty) > 0 {
-			exists, err := r.client.Exists(ctx, empty...).Result()
+			err := r.ensureExists(ctx, empty...)
 			if err != nil {
-				return nil, err
-			}
-
-			if int(exists) < len(empty) {
-				return nil, fmt.Errorf("failed to fetch the %s of these nodes %v: %w", key(""), empty, ErrNodeNotFound)
+				return nil, fmt.Errorf("failed to fetch the %s of these nodes %v: %w", key(""), empty, err)
 			}
 		}
 
@@ -293,13 +298,9 @@ func (r RedisDB) Update(ctx context.Context, delta *graph.Delta) error {
 		return nil
 	}
 
-	ok, err := r.containsNode(ctx, delta.Node)
+	err := r.ensureExists(ctx, delta.Node)
 	if err != nil {
 		return fmt.Errorf("failed to update with delta %v: %w", delta, err)
-	}
-
-	if !ok {
-		return fmt.Errorf("failed to update with delta %v: %w", delta, ErrNodeNotFound)
 	}
 
 	switch delta.Kind {
