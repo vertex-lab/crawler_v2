@@ -101,6 +101,15 @@ func (r RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, err
 	return parseNode(fields)
 }
 
+// Exists checks for the existance of the pubkey
+func (r RedisDB) Exists(ctx context.Context, pubkey string) (bool, error) {
+	exists, err := r.client.HExists(ctx, KeyKeyIndex, pubkey).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to check existance of pubkey %s: %w", pubkey, err)
+	}
+	return exists, nil
+}
+
 func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
 	if len(IDs) == 0 {
 		return nil

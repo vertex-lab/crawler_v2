@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/pagerank"
+	"github/pippellia-btc/crawler/pkg/pipe"
 	"github/pippellia-btc/crawler/pkg/walks"
 	"reflect"
 	"testing"
@@ -375,6 +376,7 @@ func TestInterfaces(t *testing.T) {
 	var _ walks.Walker = RedisDB{}
 	var _ pagerank.VisitCounter = RedisDB{}
 	var _ pagerank.PersonalizedLoader = RedisDB{}
+	var _ pipe.PubkeyChecker = RedisDB{}
 }
 
 // ------------------------------------- HELPERS -------------------------------
