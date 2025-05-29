@@ -20,6 +20,8 @@ var (
 // ID represent how walks are identified in the storage layer
 type ID string
 
+func (id ID) MarshalBinary() ([]byte, error) { return []byte(id), nil }
+
 // Walk is an ordered list of node IDs
 type Walk struct {
 	ID   ID

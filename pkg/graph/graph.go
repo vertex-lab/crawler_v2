@@ -1,3 +1,5 @@
+// The graph package defines the fundamental structures (e.g. [Node], [Delta])
+// that are used across packages.
 package graph
 
 import (

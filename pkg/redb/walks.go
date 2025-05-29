@@ -236,7 +236,7 @@ func (r RedisDB) ReplaceWalks(ctx context.Context, before, after []walks.Walk) e
 
 		prev := before[i]
 		next := after[i]
-		ID := string(after[i].ID)
+		ID := after[i].ID
 
 		pipe.HSet(ctx, KeyWalks, ID, formatWalk(next))
 
@@ -343,13 +343,13 @@ func (r RedisDB) validateWalks() error {
 }
 
 // unique returns a slice of unique elements of the input slice.
-func unique[S ~[]E, E cmp.Ordered](slice S) S {
+func unique[E cmp.Ordered](slice []E) []E {
 	if len(slice) == 0 {
 		return nil
 	}
 
 	slices.Sort(slice)
-	unique := make(S, 0, len(slice))
+	unique := make([]E, 0, len(slice))
 	unique = append(unique, slice[0])
 
 	for i := 1; i < len(slice); i++ {
