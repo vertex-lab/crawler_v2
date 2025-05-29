@@ -1,3 +1,4 @@
+// The walks package is responsible for defining, generating, removing and updating random walks.
 package walks
 
 import (
@@ -13,7 +14,7 @@ var (
 	Alpha = 0.85 // the dampening factor
 	N     = 100  // the walks per node
 
-	ErrInvalidRemoval = errors.New(fmt.Sprintf("the walks to be removed are different than the expected number %d", N))
+	ErrInvalidRemoval = errors.New("the walks to be removed are different than the expected number (100)")
 )
 
 // ID represent how walks are identified in the storage layer

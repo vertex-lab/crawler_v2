@@ -1,3 +1,5 @@
+// The pagerank package uses the random walks to compute graph algorithms like
+// global and personalized pageranks.
 package pagerank
 
 import (
