@@ -1,13 +1,17 @@
 package redb
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/walks"
 	"math"
+	"slices"
 	"strconv"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -23,7 +27,7 @@ const (
 var (
 	ErrWalkNotFound       = errors.New("walk not found")
 	ErrInvalidReplacement = errors.New("invalid walk replacement")
-	ErrInvalidLimit       = errors.New("limit must be a positive integer, or -1 to fetch all walks visiting node")
+	ErrInvalidLimit       = errors.New("limit must be a positive integer, or -1 to fetch all walks")
 )
 
 // Walks returns the walks associated with the IDs.
@@ -91,6 +95,65 @@ func (r RedisDB) WalksVisiting(ctx context.Context, node graph.ID, limit int) ([
 
 	default:
 		return nil, ErrInvalidLimit
+	}
+}
+
+// WalksVisitingAny returns up to limit walks that visit the specified nodes.
+// The walks are distributed evenly among the nodes:
+// - if limit == -1, all walks are returned (use with few nodes)
+// - if limit < len(nodes), no walks are returned
+func (r RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit int) ([]walks.Walk, error) {
+	switch {
+	case limit == -1:
+		// return all walks visiting all nodes
+		pipe := r.client.Pipeline()
+		cmds := make([]*redis.StringSliceCmd, len(nodes))
+
+		for i, node := range nodes {
+			cmds[i] = pipe.SMembers(ctx, walksVisiting(node))
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("failed to fetch all walks visiting %d nodes: %w", len(nodes), err)
+		}
+
+		IDs := make([]string, 0, walks.N*len(nodes))
+		for _, cmd := range cmds {
+			IDs = append(IDs, cmd.Val()...)
+		}
+
+		unique := unique(IDs)
+		return r.Walks(ctx, toWalks(unique)...)
+
+	case limit > 0:
+		// return limit walks uniformely distributed across all nodes
+		nodeLimit := int64(limit / len(nodes))
+		if nodeLimit == 0 {
+			return nil, nil
+		}
+
+		pipe := r.client.Pipeline()
+		cmds := make([]*redis.StringSliceCmd, len(nodes))
+
+		for i, node := range nodes {
+			cmds[i] = pipe.SRandMemberN(ctx, walksVisiting(node), nodeLimit)
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("failed to fetch %d walks visiting %d nodes: %w", limit, len(nodes), err)
+		}
+
+		IDs := make([]string, 0, limit)
+		for _, cmd := range cmds {
+			IDs = append(IDs, cmd.Val()...)
+		}
+
+		unique := unique(IDs)
+		return r.Walks(ctx, toWalks(unique)...)
+
+	default:
+		// invalid limit
+		return nil, fmt.Errorf("failed to fetch walks visiting any: %w", ErrInvalidLimit)
 	}
 }
 
@@ -277,4 +340,23 @@ func (r RedisDB) validateWalks() error {
 	}
 
 	return nil
+}
+
+// unique returns a slice of unique elements of the input slice.
+func unique[S ~[]E, E cmp.Ordered](slice S) S {
+	if len(slice) == 0 {
+		return nil
+	}
+
+	slices.Sort(slice)
+	unique := make(S, 0, len(slice))
+	unique = append(unique, slice[0])
+
+	for i := 1; i < len(slice); i++ {
+		if slice[i] != slice[i-1] {
+			unique = append(unique, slice[i])
+		}
+	}
+
+	return unique
 }

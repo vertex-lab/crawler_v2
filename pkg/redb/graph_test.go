@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github/pippellia-btc/crawler/pkg/graph"
+	"github/pippellia-btc/crawler/pkg/pagerank"
 	"reflect"
 	"testing"
 	"time"
@@ -175,6 +176,60 @@ func TestMembers(t *testing.T) {
 	}
 }
 
+func TestBulkMembers(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() (RedisDB, error)
+		nodes    []graph.ID
+		expected [][]graph.ID
+		err      error
+	}{
+		{
+			name:  "empty database",
+			setup: Empty,
+			nodes: []graph.ID{"0"},
+			err:   ErrNodeNotFound,
+		},
+		{
+			name:  "node not found",
+			setup: OneNode,
+			nodes: []graph.ID{"0", "1"},
+			err:   ErrNodeNotFound,
+		},
+		{
+			name:     "dandling node",
+			setup:    OneNode,
+			nodes:    []graph.ID{"0"},
+			expected: [][]graph.ID{{}},
+		},
+		{
+			name:     "valid",
+			setup:    Simple,
+			nodes:    []graph.ID{"0", "1"},
+			expected: [][]graph.ID{{"1"}, {}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := test.setup()
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			defer db.flushAll()
+
+			follows, err := db.bulkMembers(ctx, follows, test.nodes)
+			if !errors.Is(err, test.err) {
+				t.Fatalf("expected error %v, got %v", test.err, err)
+			}
+
+			if !reflect.DeepEqual(follows, test.expected) {
+				t.Errorf("expected follows %v, got %v", test.expected, follows)
+			}
+		})
+	}
+}
+
 func TestUpdateFollows(t *testing.T) {
 	db, err := Simple()
 	if err != nil {
@@ -313,6 +368,10 @@ func TestPubkeys(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInterfaces(t *testing.T) {
+	var _ pagerank.PersonalizedLoader = RedisDB{}
 }
 
 // ------------------------------------- HELPERS -------------------------------

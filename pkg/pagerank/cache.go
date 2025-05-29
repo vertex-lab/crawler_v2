@@ -11,11 +11,17 @@ type cachedWalker struct {
 	fallback walks.Walker
 }
 
-func newCachedWalker(followsMap map[graph.ID][]graph.ID, fallback walks.Walker) *cachedWalker {
-	return &cachedWalker{
-		follows:  followsMap,
+func newCachedWalker(nodes []graph.ID, follows [][]graph.ID, fallback walks.Walker) *cachedWalker {
+	w := cachedWalker{
+		follows:  make(map[graph.ID][]graph.ID, len(nodes)),
 		fallback: fallback,
 	}
+
+	for i, node := range nodes {
+		w.follows[node] = follows[i]
+	}
+
+	return &w
 }
 
 func (w *cachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {

@@ -90,6 +90,61 @@ func TestWalksVisiting(t *testing.T) {
 	}
 }
 
+func TestWalksVisitingAny(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func() (RedisDB, error)
+		limit         int
+		expectedWalks int // the number of [defaultWalk] returned
+	}{
+		{
+			name:          "empty",
+			setup:         SomeWalks(0),
+			limit:         1,
+			expectedWalks: 0,
+		},
+		{
+			name:          "all walks",
+			setup:         SomeWalks(10),
+			limit:         -1,
+			expectedWalks: 10,
+		},
+		{
+			name:          "some walks",
+			setup:         SomeWalks(100),
+			limit:         20,
+			expectedWalks: 20,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := test.setup()
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			defer db.flushAll()
+
+			nodes := []graph.ID{"0", "1"}
+			visiting, err := db.WalksVisitingAny(ctx, nodes, test.limit)
+			if err != nil {
+				t.Fatalf("expected error nil, got %v", err)
+			}
+
+			if len(visiting) > test.expectedWalks {
+				t.Fatalf("expected %d walks, got %d", test.expectedWalks, len(visiting))
+			}
+
+			for _, walk := range visiting {
+				if !reflect.DeepEqual(walk.Path, defaultWalk.Path) {
+					// compare only the paths, not the IDs
+					t.Fatalf("expected walk %v, got %v", defaultWalk, walk)
+				}
+			}
+		})
+	}
+}
+
 func TestAddWalks(t *testing.T) {
 	db, err := SomeWalks(1)()
 	if err != nil {
@@ -294,6 +349,38 @@ func TestValidateReplacement(t *testing.T) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
 		})
+	}
+}
+
+func TestUnique(t *testing.T) {
+	tests := []struct {
+		slice    []walks.ID
+		expected []walks.ID
+	}{
+		{slice: nil, expected: nil},
+		{slice: []walks.ID{}, expected: nil},
+		{slice: []walks.ID{"1", "2", "0"}, expected: []walks.ID{"0", "1", "2"}},
+		{slice: []walks.ID{"1", "2", "0", "3", "1", "0"}, expected: []walks.ID{"0", "1", "2", "3"}},
+	}
+
+	for _, test := range tests {
+		unique := unique(test.slice)
+		if !reflect.DeepEqual(unique, test.expected) {
+			t.Errorf("expected %v, got %v", test.expected, unique)
+		}
+	}
+}
+
+func BenchmarkUnique(b *testing.B) {
+	size := 1000000
+	IDs := make([]walks.ID, size)
+	for i := 0; i < size; i++ {
+		IDs[i] = walks.ID(strconv.Itoa(i))
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		unique(IDs)
 	}
 }
 

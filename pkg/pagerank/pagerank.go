@@ -57,7 +57,7 @@ type PersonalizedLoader interface {
 	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
 
 	// BulkFollows returns the follow-lists of the specified nodes
-	BulkFollows(ctx context.Context, nodes []graph.ID) (map[graph.ID][]graph.ID, error)
+	BulkFollows(ctx context.Context, nodes []graph.ID) ([][]graph.ID, error)
 
 	// WalksVisitingAny returns up to limit walks that visit the specified nodes.
 	// The walks are distributed evenly among the nodes:
@@ -116,7 +116,7 @@ func Personalized(
 		return map[graph.ID]float64{source: 1.0}, nil
 	}
 
-	followMap, err := loader.BulkFollows(ctx, follows)
+	followByNode, err := loader.BulkFollows(ctx, follows)
 	if err != nil {
 		return nil, fmt.Errorf("Personalized: failed to fetch the two-hop network of source: %w", err)
 	}
@@ -127,7 +127,7 @@ func Personalized(
 		return nil, fmt.Errorf("Personalized: failed to fetch the walk: %w", err)
 	}
 
-	walker := newCachedWalker(followMap, loader)
+	walker := newCachedWalker(follows, followByNode, loader)
 	pool := newWalkPool(walks)
 
 	walk, err := personalizedWalk(ctx, walker, pool, source, targetLenght)

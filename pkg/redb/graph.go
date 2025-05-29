@@ -185,6 +185,72 @@ func (r RedisDB) members(ctx context.Context, key func(graph.ID) string, node gr
 	return toNodes(members), nil
 }
 
+// BulkFollows returns the follow-lists of all the provided nodes.
+// Do not call on too many nodes (e.g. +100k) to avoid too many recursions.
+func (r RedisDB) BulkFollows(ctx context.Context, nodes []graph.ID) ([][]graph.ID, error) {
+	return r.bulkMembers(ctx, follows, nodes)
+}
+
+func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nodes []graph.ID) ([][]graph.ID, error) {
+	switch {
+	case len(nodes) == 0:
+		return nil, nil
+
+	case len(nodes) < 10000:
+		pipe := r.client.Pipeline()
+		cmds := make([]*redis.StringSliceCmd, len(nodes))
+
+		for i, node := range nodes {
+			cmds[i] = pipe.SMembers(ctx, key(node))
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("failed to fetch the %s of %d nodes: %w", key(""), len(nodes), err)
+		}
+
+		var empty []string
+		members := make([][]graph.ID, len(nodes))
+
+		for i, cmd := range cmds {
+			m := cmd.Val()
+			if len(m) == 0 {
+				// empty slice might mean node not found.
+				empty = append(empty, node(nodes[i]))
+			}
+
+			members[i] = toNodes(m)
+		}
+
+		if len(empty) > 0 {
+			exists, err := r.client.Exists(ctx, empty...).Result()
+			if err != nil {
+				return nil, err
+			}
+
+			if int(exists) < len(empty) {
+				return nil, fmt.Errorf("failed to fetch the %s of these nodes %v: %w", key(""), empty, ErrNodeNotFound)
+			}
+		}
+
+		return members, nil
+
+	default:
+		// too many nodes, split them in two batches
+		mid := len(nodes) / 2
+		batch1, err := r.bulkMembers(ctx, key, nodes[:mid])
+		if err != nil {
+			return nil, err
+		}
+
+		batch2, err := r.bulkMembers(ctx, key, nodes[mid:])
+		if err != nil {
+			return nil, err
+		}
+
+		return append(batch1, batch2...), nil
+	}
+}
+
 // FollowCounts returns the number of follows each node has. If a node is not found, it returns 0.
 func (r RedisDB) FollowCounts(ctx context.Context, nodes ...graph.ID) ([]int, error) {
 	return r.counts(ctx, follows, nodes...)
@@ -202,15 +268,13 @@ func (r RedisDB) counts(ctx context.Context, key func(graph.ID) string, nodes ..
 
 	pipe := r.client.Pipeline()
 	cmds := make([]*redis.IntCmd, len(nodes))
-	keys := make([]string, len(nodes))
 
 	for i, node := range nodes {
-		keys[i] = key(node)
 		cmds[i] = pipe.SCard(ctx, key(node))
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return nil, fmt.Errorf("failed to count the elements of %v: %w", keys, err)
+		return nil, fmt.Errorf("failed to count the elements of %d nodes: %w", len(nodes), err)
 	}
 
 	counts := make([]int, len(nodes))

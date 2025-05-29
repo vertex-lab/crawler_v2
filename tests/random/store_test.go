@@ -99,18 +99,18 @@ func (l *mockLoader) Follows(ctx context.Context, node graph.ID) ([]graph.ID, er
 	return l.walker.Follows(ctx, node)
 }
 
-func (l *mockLoader) BulkFollows(ctx context.Context, nodes []graph.ID) (map[graph.ID][]graph.ID, error) {
-	followsMap := make(map[graph.ID][]graph.ID, len(nodes))
-	for _, node := range nodes {
-		follows, err := l.walker.Follows(ctx, node)
+func (l *mockLoader) BulkFollows(ctx context.Context, nodes []graph.ID) ([][]graph.ID, error) {
+	var err error
+	follows := make([][]graph.ID, len(nodes))
+
+	for i, node := range nodes {
+		follows[i], err = l.walker.Follows(ctx, node)
 		if err != nil {
 			return nil, err
 		}
-
-		followsMap[node] = follows
 	}
 
-	return followsMap, nil
+	return follows, nil
 }
 
 func (l *mockLoader) AddWalks(w []walks.Walk) {
