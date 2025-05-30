@@ -68,6 +68,39 @@ func (r RedisDB) NodeCount(ctx context.Context) (int, error) {
 	return int(nodes), nil
 }
 
+// Nodes fetches a slice of nodes by their IDs.
+func (r RedisDB) Nodes(ctx context.Context, IDs ...graph.ID) ([]*graph.Node, error) {
+	if len(IDs) == 0 {
+		return nil, nil
+	}
+
+	pipe := r.client.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(IDs))
+	for i, ID := range IDs {
+		cmds[i] = pipe.HGetAll(ctx, node(ID))
+	}
+
+	var err error
+	if _, err = pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("failed to fetch %d nodes: %w", len(IDs), err)
+	}
+
+	nodes := make([]*graph.Node, len(IDs))
+	for i, cmd := range cmds {
+		fields := cmd.Val()
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("failed to fetch %s: %w", node(IDs[i]), ErrNodeNotFound)
+		}
+
+		nodes[i], err = parseNode(fields)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s: %w", node(IDs[i]), err)
+		}
+	}
+
+	return nodes, nil
+}
+
 // NodeByID fetches a node by its ID
 func (r RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error) {
 	fields, err := r.client.HGetAll(ctx, node(ID)).Result()
@@ -174,7 +207,7 @@ func (r RedisDB) Promote(ctx context.Context, ID graph.ID) error {
 func (r RedisDB) Demote(ctx context.Context, ID graph.ID) error {
 	err := r.client.HSet(ctx, node(ID), NodeStatus, graph.StatusInactive, NodeDemotionTS, time.Now().Unix()).Err()
 	if err != nil {
-		return fmt.Errorf("failed to promote %s: %w", node(ID), err)
+		return fmt.Errorf("failed to demote %s: %w", node(ID), err)
 	}
 	return nil
 }

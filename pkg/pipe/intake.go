@@ -103,6 +103,7 @@ func (b *buffer) Contains(ID string) bool {
 func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, send func(*nostr.Event) error) {
 	pool := nostr.NewSimplePool(ctx)
 	defer close(pool)
+	defer log.Println("Firehose: shutting down...")
 
 	filter := nostr.Filter{
 		Kinds: relevantKinds,
@@ -168,6 +169,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("Fetcher: shutting down...")
 			return
 
 		case pubkey := <-pubkeys:

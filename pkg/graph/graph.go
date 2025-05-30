@@ -29,6 +29,16 @@ type Node struct {
 	Records []Record
 }
 
+// Added returns the time a node was added to the database.
+func (n *Node) Added() (time.Time, bool) {
+	for _, rec := range n.Records {
+		if rec.Kind == Addition {
+			return rec.Timestamp, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // Record contains the timestamp of a node update.
 type Record struct {
 	Kind      int // either [Addition], [Promotion] or [Demotion]

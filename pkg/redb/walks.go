@@ -308,6 +308,15 @@ func (r RedisDB) TotalVisits(ctx context.Context) (int, error) {
 	return tot, nil
 }
 
+// TotalWalks returns the total number of walks.
+func (r RedisDB) TotalWalks(ctx context.Context) (int, error) {
+	total, err := r.client.HLen(ctx, KeyWalks).Result()
+	if err != nil {
+		return -1, fmt.Errorf("failed to get the total number of walks: %w", err)
+	}
+	return int(total), nil
+}
+
 // Visits returns the number of times each specified node was visited during the walks.
 // The returned slice contains counts in the same order as the input nodes.
 // If a node is not found, it returns 0 visits.

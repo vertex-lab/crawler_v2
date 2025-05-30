@@ -3,6 +3,7 @@ package redb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/walks"
 	"strconv"
@@ -86,21 +87,21 @@ func parseNode(fields map[string]string) (*graph.Node, error) {
 		case NodeAddedTS:
 			ts, err := parseTimestamp(val)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to parse node: %v", err)
 			}
 			node.Records = append(node.Records, graph.Record{Kind: graph.Addition, Timestamp: ts})
 
 		case NodePromotionTS:
 			ts, err := parseTimestamp(val)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to parse node: %v", err)
 			}
 			node.Records = append(node.Records, graph.Record{Kind: graph.Promotion, Timestamp: ts})
 
 		case NodeDemotionTS:
 			ts, err := parseTimestamp(val)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to parse node: %v", err)
 			}
 			node.Records = append(node.Records, graph.Record{Kind: graph.Demotion, Timestamp: ts})
 		}
@@ -113,7 +114,7 @@ func parseNode(fields map[string]string) (*graph.Node, error) {
 func parseTimestamp(unix string) (time.Time, error) {
 	ts, err := strconv.ParseInt(unix, 10, 64)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 	return time.Unix(ts, 0), nil
 }

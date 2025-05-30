@@ -114,7 +114,7 @@ func Generate(ctx context.Context, walker Walker, nodes ...graph.ID) ([]Walk, er
 		for range N {
 			path, err = generate(ctx, walker, node)
 			if err != nil {
-				return nil, fmt.Errorf("failed to Generate: %w", err)
+				return nil, fmt.Errorf("failed to generate walk: %w", err)
 			}
 
 			walks = append(walks, Walk{Path: path})
