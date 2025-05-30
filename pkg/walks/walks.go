@@ -29,11 +29,6 @@ type Walk struct {
 	// Stop  int
 }
 
-type Walker interface {
-	// Follows returns the follow-list of the node, used  for generating random walks
-	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
-}
-
 // Len returns the lenght of the walk
 func (w Walk) Len() int {
 	return len(w.Path)

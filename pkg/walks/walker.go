@@ -6,6 +6,11 @@ import (
 	"strconv"
 )
 
+type Walker interface {
+	// Follows returns the follow-list of the node, used  for generating random walks
+	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
+}
+
 type MapWalker struct {
 	follows map[graph.ID][]graph.ID
 }
