@@ -23,7 +23,7 @@ func TestFirehose(t *testing.T) {
 	defer cancel()
 
 	checker := mockChecker{pubkey: pip}
-	config := FirehoseConfig{Relays: defaultRelays}
+	config := NewFirehoseConfig()
 
 	Firehose(ctx, config, checker, print)
 }

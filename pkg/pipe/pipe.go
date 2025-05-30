@@ -56,7 +56,7 @@ type FirehoseConfig struct {
 func NewFirehoseConfig() FirehoseConfig {
 	return FirehoseConfig{
 		Relays: defaultRelays,
-		Offset: 10 * time.Second,
+		Offset: time.Minute,
 	}
 }
 
