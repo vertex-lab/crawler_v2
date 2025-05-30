@@ -9,7 +9,6 @@ import (
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/walks"
 	"math/rand/v2"
-	"slices"
 )
 
 var ErrEmptyWalkStore = errors.New("the walk store is empty")
@@ -246,28 +245,6 @@ func frequencyMap(path []graph.ID) map[graph.ID]float64 {
 
 	for _, node := range path {
 		freqs[node] += freq
-	}
-
-	return freqs
-}
-
-// targetFrequency returns the frequency of visits for each target
-func targetFrequency(targets []graph.ID, path []graph.ID) []float64 {
-	if len(targets) == 0 || len(path) == 0 {
-		return nil
-	}
-
-	total := len(path)
-	freq := 1.0 / float64(total)
-	freqs := make([]float64, len(targets))
-
-	for _, node := range path {
-		idx := slices.Index(targets, node)
-		if idx == -1 {
-			continue
-		}
-
-		freqs[idx] += freq
 	}
 
 	return freqs

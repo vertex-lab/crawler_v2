@@ -57,29 +57,6 @@ func BenchmarkFrequencyMap(b *testing.B) {
 	}
 }
 
-func BenchmarkTargetFrequency(b *testing.B) {
-	targets := make([]graph.ID, 10)
-	for i := range 10 {
-		targets[i] = randomID(1000)
-	}
-
-	sizes := []int{10000, 100000, 1000000}
-	for _, size := range sizes {
-		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-
-			path := make([]graph.ID, size)
-			for i := range sizes {
-				path[i] = randomID(size / 10)
-			}
-
-			b.ResetTimer()
-			for range b.N {
-				targetFrequency(targets, path)
-			}
-		})
-	}
-}
-
 func randomID(n int) graph.ID {
 	return graph.ID(strconv.Itoa(rand.IntN(n)))
 }
