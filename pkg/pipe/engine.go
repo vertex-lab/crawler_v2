@@ -135,7 +135,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 
 			case graph.StatusInactive:
 				// inactive --> active
-				added, found := node.Added()
+				added, found := node.Addition()
 				if !found {
 					return promoted, demoted, fmt.Errorf("node %s doesn't have an addition record", node.ID)
 				}

@@ -29,20 +29,23 @@ type Node struct {
 	Records []Record
 }
 
-// Added returns the time a node was added to the database.
-func (n *Node) Added() (time.Time, bool) {
-	for _, rec := range n.Records {
-		if rec.Kind == Addition {
-			return rec.Timestamp, true
-		}
-	}
-	return time.Time{}, false
-}
-
 // Record contains the timestamp of a node update.
 type Record struct {
 	Kind      int // either [Addition], [Promotion] or [Demotion]
 	Timestamp time.Time
+}
+
+func (n *Node) Addition() (time.Time, bool)  { return n.find(Addition) }
+func (n *Node) Promotion() (time.Time, bool) { return n.find(Promotion) }
+func (n *Node) Demotion() (time.Time, bool)  { return n.find(Demotion) }
+
+func (n *Node) find(kind int) (time.Time, bool) {
+	for _, record := range n.Records {
+		if record.Kind == kind {
+			return record.Timestamp, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // Delta represents updates to apply to a Node.
