@@ -109,7 +109,7 @@ func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, s
 		Since: config.Since(),
 	}
 
-	seen := newBuffer(2048)
+	seen := newBuffer(1024)
 	for event := range pool.SubscribeMany(ctx, config.Relays, filter) {
 		if seen.Contains(event.ID) {
 			// event already seen, skip
