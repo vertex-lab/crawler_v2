@@ -171,6 +171,31 @@ func TestFindCycle(t *testing.T) {
 	}
 }
 
+// func TestMemoryUsage(t *testing.T) {
+// 	var before runtime.MemStats
+// 	runtime.ReadMemStats(&before)
+
+// 	follows := make(map[int][]int)
+// 	for i := 0; i < 1000000; i++ {
+// 		node := int(i)
+// 		follows[node] = randomFollows(100)
+// 	}
+
+// 	var after runtime.MemStats
+// 	runtime.ReadMemStats(&after)
+
+// 	used := float64(after.Alloc-before.Alloc) / 1024 / 1024
+// 	t.Fatalf("Approx. memory used by map: %.2f MB\n", used)
+// }
+
+// func randomFollows(size int) []int {
+// 	follows := make([]int, size)
+// 	for i := range size {
+// 		follows[i] = rand.Int()
+// 	}
+// 	return follows
+// }
+
 func BenchmarkFindCycle(b *testing.B) {
 	sizes := []int{10, 100, 1000}
 	for _, size := range sizes {

@@ -37,3 +37,38 @@ func NewCyclicWalker(n int) *MapWalker {
 
 	return &MapWalker{follows: follows}
 }
+
+// CachedWalker is a walker with optional fallback that stores follow relationships
+// in a compact format (uint32) for reduced memory footprint.
+type cachedWalker struct {
+	follows  map[graph.ID][]graph.ID
+	fallback Walker
+}
+
+func NewCachedWalker(nodes []graph.ID, follows [][]graph.ID, fallback Walker) *cachedWalker {
+	w := cachedWalker{
+		follows:  make(map[graph.ID][]graph.ID, len(nodes)),
+		fallback: fallback,
+	}
+
+	for i, node := range nodes {
+		w.follows[node] = follows[i]
+	}
+
+	return &w
+}
+
+func (w *cachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+	follows, exists := w.follows[node]
+	if !exists {
+		var err error
+		follows, err = w.fallback.Follows(ctx, node)
+		if err != nil {
+			return nil, err
+		}
+
+		w.follows[node] = follows
+	}
+
+	return follows, nil
+}
