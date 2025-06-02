@@ -11,23 +11,23 @@ type Walker interface {
 	Follows(ctx context.Context, node graph.ID) ([]graph.ID, error)
 }
 
-type MapWalker struct {
+type SimpleWalker struct {
 	follows map[graph.ID][]graph.ID
 }
 
-func NewWalker(m map[graph.ID][]graph.ID) *MapWalker {
-	return &MapWalker{follows: m}
+func NewSimpleWalker(m map[graph.ID][]graph.ID) *SimpleWalker {
+	return &SimpleWalker{follows: m}
 }
 
-func (m *MapWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
-	return m.follows[node], nil
+func (w *SimpleWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+	return w.follows[node], nil
 }
 
-func (m *MapWalker) Update(ctx context.Context, delta graph.Delta) {
-	m.follows[delta.Node] = delta.New()
+func (w *SimpleWalker) Update(ctx context.Context, delta graph.Delta) {
+	w.follows[delta.Node] = delta.New()
 }
 
-func NewCyclicWalker(n int) *MapWalker {
+func NewCyclicWalker(n int) *SimpleWalker {
 	follows := make(map[graph.ID][]graph.ID, n)
 	for i := range n {
 		node := graph.ID(strconv.Itoa(i))
@@ -35,18 +35,18 @@ func NewCyclicWalker(n int) *MapWalker {
 		follows[node] = []graph.ID{next}
 	}
 
-	return &MapWalker{follows: follows}
+	return &SimpleWalker{follows: follows}
 }
 
 // CachedWalker is a walker with optional fallback that stores follow relationships
 // in a compact format (uint32) for reduced memory footprint.
-type cachedWalker struct {
+type CachedWalker struct {
 	follows  map[graph.ID][]graph.ID
 	fallback Walker
 }
 
-func NewCachedWalker(nodes []graph.ID, follows [][]graph.ID, fallback Walker) *cachedWalker {
-	w := cachedWalker{
+func NewCachedWalker(nodes []graph.ID, follows [][]graph.ID, fallback Walker) *CachedWalker {
+	w := CachedWalker{
 		follows:  make(map[graph.ID][]graph.ID, len(nodes)),
 		fallback: fallback,
 	}
@@ -58,7 +58,7 @@ func NewCachedWalker(nodes []graph.ID, follows [][]graph.ID, fallback Walker) *c
 	return &w
 }
 
-func (w *cachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+func (w *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
 	follows, exists := w.follows[node]
 	if !exists {
 		var err error

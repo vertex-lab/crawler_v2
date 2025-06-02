@@ -102,12 +102,13 @@ func TestToRemove(t *testing.T) {
 }
 
 func TestUpdateRemove(t *testing.T) {
-	walker := NewWalker(map[graph.ID][]graph.ID{
-		"0": {"3"},
-		"1": {"2"},
-		"2": {"0"},
-		"3": {"2"},
-	})
+	walker := NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"3"},
+			"1": {"2"},
+			"2": {"0"},
+			"3": {"2"},
+		})
 
 	delta := graph.Delta{
 		Node:   "0",

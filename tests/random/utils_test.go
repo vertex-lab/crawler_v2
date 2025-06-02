@@ -8,7 +8,7 @@ import (
 )
 
 type Setup struct {
-	walker *walks.MapWalker
+	walker *walks.SimpleWalker
 	deltas []graph.Delta
 
 	nodes        []graph.ID
@@ -54,7 +54,7 @@ func Dandlings(n int) Setup {
 	}
 
 	return Setup{
-		walker:       walks.NewWalker(make(map[graph.ID][]graph.ID)),
+		walker:       walks.NewSimpleWalker(make(map[graph.ID][]graph.ID)),
 		deltas:       deltas,
 		nodes:        nodes,
 		global:       global,
@@ -93,13 +93,14 @@ func Cyclic(n int) Setup {
 var Triangle = Cyclic(3)
 
 var Acyclic1 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"1", "2"},
-		"1": {},
-		"2": {"3"},
-		"3": {"1"},
-		"4": {},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"1", "2"},
+			"1": {},
+			"2": {"3"},
+			"3": {"1"},
+			"4": {},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"1"}, Keep: []graph.ID{"2"}},
@@ -136,14 +137,15 @@ var Acyclic1 = Setup{
 }
 
 var Acyclic2 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"1", "2"},
-		"1": {},
-		"2": {},
-		"3": {},
-		"4": {"3", "5"},
-		"5": {},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"1", "2"},
+			"1": {},
+			"2": {},
+			"3": {},
+			"4": {"3", "5"},
+			"5": {},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"1"}, Keep: []graph.ID{"2"}},
@@ -167,12 +169,13 @@ var Acyclic2 = Setup{
 }
 
 var Acyclic3 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"1", "2"},
-		"1": {},
-		"2": {},
-		"3": {"1", "2"},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"1", "2"},
+			"1": {},
+			"2": {},
+			"3": {"1", "2"},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"1"}, Keep: []graph.ID{"2"}},
@@ -190,12 +193,13 @@ var Acyclic3 = Setup{
 }
 
 var Acyclic4 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"1", "2"},
-		"1": {},
-		"2": {},
-		"3": {"1"},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"1", "2"},
+			"1": {},
+			"2": {},
+			"3": {"1"},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"1"}, Keep: []graph.ID{"2"}},
@@ -218,12 +222,13 @@ var Acyclic4 = Setup{
 }
 
 var Acyclic5 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"3"},
-		"1": {"0"},
-		"2": {},
-		"3": {"2"},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"3"},
+			"1": {"0"},
+			"2": {},
+			"3": {"2"},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"3"}},
@@ -246,13 +251,14 @@ var Acyclic5 = Setup{
 }
 
 var Acyclic6 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
-		"0": {"4"},
-		"1": {"0"},
-		"2": {},
-		"3": {"1", "4"},
-		"4": {"2"},
-	}),
+	walker: walks.NewSimpleWalker(
+		map[graph.ID][]graph.ID{
+			"0": {"4"},
+			"1": {"0"},
+			"2": {},
+			"3": {"1", "4"},
+			"4": {"2"},
+		}),
 	deltas: []graph.Delta{
 		// removals
 		{Node: "0", Remove: []graph.ID{"4"}},
@@ -290,7 +296,7 @@ var Acyclic6 = Setup{
 }
 
 var Acyclic7 = Setup{
-	walker: walks.NewWalker(map[graph.ID][]graph.ID{
+	walker: walks.NewSimpleWalker(map[graph.ID][]graph.ID{
 		"0": {"1", "2", "3"},
 		"1": {},
 		"2": {},
