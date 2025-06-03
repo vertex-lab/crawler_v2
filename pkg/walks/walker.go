@@ -33,13 +33,20 @@ type CachedWalker struct {
 
 type Option func(*CachedWalker)
 
-func WithCapacity(cap int) Option  { return func(c *CachedWalker) { c.capacity = cap } }
-func WithFallback(f Walker) Option { return func(c *CachedWalker) { c.fallback = f } }
+func WithCapacity(cap int) Option {
+	return func(c *CachedWalker) {
+		c.lookup = make(map[uint32]*list.Element, cap)
+		c.capacity = cap
+	}
+}
+
+func WithFallback(w Walker) Option { return func(c *CachedWalker) { c.fallback = w } }
 
 func NewWalker(opts ...Option) *CachedWalker {
 	c := &CachedWalker{
 		lookup:   make(map[uint32]*list.Element, 10000),
 		edgeList: list.New(),
+		capacity: 10000,
 	}
 
 	for _, opt := range opts {
@@ -72,6 +79,13 @@ func (c *CachedWalker) Add(node graph.ID, follows []graph.ID) error {
 
 // Add node and follows as edges. It evicts the LRU element if the capacity has been exeeded.
 func (c *CachedWalker) add(node uint32, follows []uint32) {
+	if e, ok := c.lookup[node]; ok {
+		// node already present, update value
+		e.Value = edges{node: node, follows: follows}
+		c.edgeList.MoveToFront(e)
+		return
+	}
+
 	c.lookup[node] = c.edgeList.PushFront(
 		edges{node: node, follows: follows},
 	)
@@ -81,6 +95,13 @@ func (c *CachedWalker) add(node uint32, follows []uint32) {
 		c.edgeList.Remove(oldest)
 		delete(c.lookup, oldest.Value.(edges).node)
 	}
+}
+
+func (c *CachedWalker) Update(ctx context.Context, delta graph.Delta) error {
+	if err := c.Add(delta.Node, delta.New()); err != nil {
+		return fmt.Errorf("failed to update: %w", err)
+	}
+	return nil
 }
 
 func (c *CachedWalker) Size() int {
@@ -99,7 +120,7 @@ func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, 
 	}
 
 	c.calls++
-	if c.calls > 10000 {
+	if c.calls >= 10000 {
 		defer c.logStats()
 	}
 
