@@ -84,8 +84,8 @@ func TestAddNode(t *testing.T) {
 		}
 		defer db.flushAll()
 
-		if _, err = db.AddNode(ctx, "0"); !errors.Is(err, ErrNodeAlreadyExists) {
-			t.Fatalf("expected error %v, got %v", ErrNodeAlreadyExists, err)
+		if _, err = db.AddNode(ctx, "0"); !errors.Is(err, graph.ErrNodeAlreadyExists) {
+			t.Fatalf("expected error %v, got %v", graph.ErrNodeAlreadyExists, err)
 		}
 	})
 
@@ -135,13 +135,13 @@ func TestMembers(t *testing.T) {
 			name:  "empty database",
 			setup: Empty,
 			node:  "0",
-			err:   ErrNodeNotFound,
+			err:   graph.ErrNodeNotFound,
 		},
 		{
 			name:  "node not found",
 			setup: OneNode,
 			node:  "1",
-			err:   ErrNodeNotFound,
+			err:   graph.ErrNodeNotFound,
 		},
 		{
 			name:     "dandling node",
@@ -189,13 +189,13 @@ func TestBulkMembers(t *testing.T) {
 			name:  "empty database",
 			setup: Empty,
 			nodes: []graph.ID{"0"},
-			err:   ErrNodeNotFound,
+			err:   graph.ErrNodeNotFound,
 		},
 		{
 			name:  "node not found",
 			setup: OneNode,
 			nodes: []graph.ID{"0", "1"},
-			err:   ErrNodeNotFound,
+			err:   graph.ErrNodeNotFound,
 		},
 		{
 			name:     "dandling node",

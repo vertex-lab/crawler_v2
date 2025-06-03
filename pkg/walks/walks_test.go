@@ -189,14 +189,6 @@ func TestFindCycle(t *testing.T) {
 // 	t.Fatalf("Approx. memory used by map: %.2f MB\n", used)
 // }
 
-// func randomFollows(size int) []int {
-// 	follows := make([]int, size)
-// 	for i := range size {
-// 		follows[i] = rand.Int()
-// 	}
-// 	return follows
-// }
-
 func BenchmarkFindCycle(b *testing.B) {
 	sizes := []int{10, 100, 1000}
 	for _, size := range sizes {

@@ -117,19 +117,27 @@ func Personalized(
 		return map[graph.ID]float64{source: 1.0}, nil
 	}
 
-	followByNode, err := loader.BulkFollows(ctx, follows)
+	bulk, err := loader.BulkFollows(ctx, follows)
 	if err != nil {
 		return nil, fmt.Errorf("Personalized: failed to fetch the two-hop network of source: %w", err)
 	}
 
-	walker := walks.NewCachedWalker(follows, followByNode, loader)
-	targetWalks := int(float64(targetLenght) * (1 - walks.Alpha))
+	walker := walks.NewWalker(
+		walks.WithCapacity(10000),
+		walks.WithFallback(loader),
+	)
 
-	walks, err := loader.WalksVisitingAny(ctx, append(follows, source), targetWalks)
+	if err := walker.Load(follows, bulk); err != nil {
+		return nil, fmt.Errorf("Personalized: failed to load the two-hop network of source: %w", err)
+	}
+
+	targetWalks := int(float64(targetLenght) * (1 - walks.Alpha))
+	visiting, err := loader.WalksVisitingAny(ctx, append(follows, source), targetWalks)
 	if err != nil {
 		return nil, fmt.Errorf("Personalized: failed to fetch the walk: %w", err)
 	}
-	pool := newWalkPool(walks)
+
+	pool := newWalkPool(visiting)
 
 	walk, err := personalizedWalk(ctx, walker, pool, source, targetLenght)
 	if err != nil {

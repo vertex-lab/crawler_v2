@@ -3,6 +3,7 @@
 package graph
 
 import (
+	"errors"
 	"time"
 )
 
@@ -15,6 +16,11 @@ const (
 	Addition  int = -3
 	Promotion int = -2
 	Demotion  int = -1
+)
+
+var (
+	ErrNodeNotFound      = errors.New("node not found")
+	ErrNodeAlreadyExists = errors.New("node already exists")
 )
 
 type ID string

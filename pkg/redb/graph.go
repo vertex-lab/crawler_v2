@@ -33,11 +33,6 @@ const (
 	NodeAddedTS     = "added_TS"     // TODO: change to addition
 )
 
-var (
-	ErrNodeNotFound      = errors.New("node not found")
-	ErrNodeAlreadyExists = errors.New("node already exists")
-)
-
 type RedisDB struct {
 	client *redis.Client
 }
@@ -89,7 +84,7 @@ func (r RedisDB) Nodes(ctx context.Context, IDs ...graph.ID) ([]*graph.Node, err
 	for i, cmd := range cmds {
 		fields := cmd.Val()
 		if len(fields) == 0 {
-			return nil, fmt.Errorf("failed to fetch %s: %w", node(IDs[i]), ErrNodeNotFound)
+			return nil, fmt.Errorf("failed to fetch %s: %w", node(IDs[i]), graph.ErrNodeNotFound)
 		}
 
 		nodes[i], err = parseNode(fields)
@@ -109,7 +104,7 @@ func (r RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error)
 	}
 
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("failed to fetch %s: %w", node(ID), ErrNodeNotFound)
+		return nil, fmt.Errorf("failed to fetch %s: %w", node(ID), graph.ErrNodeNotFound)
 	}
 
 	return parseNode(fields)
@@ -128,7 +123,7 @@ func (r RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, err
 	}
 
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("failed to fetch node with pubkey %s: %w", pubkey, ErrNodeNotFound)
+		return nil, fmt.Errorf("failed to fetch node with pubkey %s: %w", pubkey, graph.ErrNodeNotFound)
 	}
 
 	return parseNode(fields)
@@ -159,7 +154,7 @@ func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
 	}
 
 	if int(exists) < len(IDs) {
-		return ErrNodeNotFound
+		return graph.ErrNodeNotFound
 	}
 
 	return nil
@@ -173,7 +168,7 @@ func (r RedisDB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
 	}
 
 	if exists {
-		return "", fmt.Errorf("failed to add node with pubkey %s: %w", pubkey, ErrNodeAlreadyExists)
+		return "", fmt.Errorf("failed to add node with pubkey %s: %w", pubkey, graph.ErrNodeAlreadyExists)
 	}
 
 	// get the ID outside the transaction, which implies there might be "holes",
@@ -212,12 +207,12 @@ func (r RedisDB) Demote(ctx context.Context, ID graph.ID) error {
 	return nil
 }
 
-// Follows returns the follow list of node. If node is not found, it returns [ErrNodeNotFound].
+// Follows returns the follow list of node. If node is not found, it returns [graph.ErrNodeNotFound].
 func (r RedisDB) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
 	return r.members(ctx, follows, node)
 }
 
-// Followers returns the list of followers of node. If node is not found, it returns [ErrNodeNotFound].
+// Followers returns the list of followers of node. If node is not found, it returns [graph.ErrNodeNotFound].
 func (r RedisDB) Followers(ctx context.Context, node graph.ID) ([]graph.ID, error) {
 	return r.members(ctx, followers, node)
 }
