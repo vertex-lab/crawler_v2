@@ -4,6 +4,9 @@ package graph
 
 import (
 	"errors"
+	"math/rand/v2"
+	"slices"
+	"strconv"
 	"time"
 )
 
@@ -64,6 +67,46 @@ type Delta struct {
 	Add    []ID
 }
 
+// NewDelta returns a delta by computing the relationships to remove, keep and add.
+// Time complexity O(n * logn + m * logm), where n and m are the lengths of the slices.
+// This function is much faster than converting to sets for sizes (n, m) smaller than ~10^6.
+func NewDelta(kind int, node ID, old, new []ID) Delta {
+	delta := Delta{
+		Kind: kind,
+		Node: node,
+	}
+
+	slices.Sort(old)
+	slices.Sort(new)
+	i, j := 0, 0
+	oldLen, newLen := len(old), len(new)
+
+	for i < oldLen && j < newLen {
+		switch {
+		case old[i] < new[j]:
+			// ID is in old but not in new => remove
+			delta.Remove = append(delta.Remove, old[i])
+			i++
+
+		case old[i] > new[j]:
+			// ID is in new but not in old => add
+			delta.Add = append(delta.Add, new[j])
+			j++
+
+		default:
+			// ID is in both => keep
+			delta.Keep = append(delta.Keep, old[i])
+			i++
+			j++
+		}
+	}
+
+	// add all elements not traversed
+	delta.Remove = append(delta.Remove, old[i:]...)
+	delta.Add = append(delta.Add, new[j:]...)
+	return delta
+}
+
 // Size returns the number of relationships changed by delta
 func (d Delta) Size() int {
 	return len(d.Remove) + len(d.Add)
@@ -88,4 +131,14 @@ func (d Delta) Inverse() Delta {
 		Remove: d.Add,
 		Add:    d.Remove,
 	}
+}
+
+// RandomIDs of the provided size.
+func RandomIDs(size int) []ID {
+	IDs := make([]ID, size)
+	for i := range size {
+		node := rand.IntN(10000000)
+		IDs[i] = ID(strconv.Itoa(node))
+	}
+	return IDs
 }

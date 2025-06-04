@@ -38,16 +38,16 @@ type RedisDB struct {
 }
 
 func New(opt *redis.Options) RedisDB {
-	r := RedisDB{client: redis.NewClient(opt)}
-	if err := r.validateWalks(); err != nil {
+	db := RedisDB{client: redis.NewClient(opt)}
+	if err := db.validateWalks(); err != nil {
 		panic(err)
 	}
-	return r
+	return db
 }
 
 // Size returns the DBSize of redis, which is the total number of keys
-func (r RedisDB) Size(ctx context.Context) (int, error) {
-	size, err := r.client.DBSize(ctx).Result()
+func (db RedisDB) Size(ctx context.Context) (int, error) {
+	size, err := db.client.DBSize(ctx).Result()
 	if err != nil {
 		return 0, err
 	}
@@ -55,8 +55,8 @@ func (r RedisDB) Size(ctx context.Context) (int, error) {
 }
 
 // NodeCount returns the number of nodes stored in redis (in the keyIndex)
-func (r RedisDB) NodeCount(ctx context.Context) (int, error) {
-	nodes, err := r.client.HLen(ctx, KeyKeyIndex).Result()
+func (db RedisDB) NodeCount(ctx context.Context) (int, error) {
+	nodes, err := db.client.HLen(ctx, KeyKeyIndex).Result()
 	if err != nil {
 		return 0, err
 	}
@@ -64,12 +64,12 @@ func (r RedisDB) NodeCount(ctx context.Context) (int, error) {
 }
 
 // Nodes fetches a slice of nodes by their IDs.
-func (r RedisDB) Nodes(ctx context.Context, IDs ...graph.ID) ([]*graph.Node, error) {
+func (db RedisDB) Nodes(ctx context.Context, IDs ...graph.ID) ([]*graph.Node, error) {
 	if len(IDs) == 0 {
 		return nil, nil
 	}
 
-	pipe := r.client.Pipeline()
+	pipe := db.client.Pipeline()
 	cmds := make([]*redis.MapStringStringCmd, len(IDs))
 	for i, ID := range IDs {
 		cmds[i] = pipe.HGetAll(ctx, node(ID))
@@ -97,8 +97,8 @@ func (r RedisDB) Nodes(ctx context.Context, IDs ...graph.ID) ([]*graph.Node, err
 }
 
 // NodeByID fetches a node by its ID
-func (r RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error) {
-	fields, err := r.client.HGetAll(ctx, node(ID)).Result()
+func (db RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error) {
+	fields, err := db.client.HGetAll(ctx, node(ID)).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch %s: %w", node(ID), err)
 	}
@@ -111,13 +111,13 @@ func (r RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error)
 }
 
 // NodeByKey fetches a node by its pubkey
-func (r RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, error) {
-	ID, err := r.client.HGet(ctx, KeyKeyIndex, pubkey).Result()
+func (db RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, error) {
+	ID, err := db.client.HGet(ctx, KeyKeyIndex, pubkey).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch ID of node with pubkey %s: %w", pubkey, err)
 	}
 
-	fields, err := r.client.HGetAll(ctx, node(ID)).Result()
+	fields, err := db.client.HGetAll(ctx, node(ID)).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch node with pubkey %s: %w", pubkey, err)
 	}
@@ -130,15 +130,15 @@ func (r RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, err
 }
 
 // Exists checks for the existance of the pubkey
-func (r RedisDB) Exists(ctx context.Context, pubkey string) (bool, error) {
-	exists, err := r.client.HExists(ctx, KeyKeyIndex, pubkey).Result()
+func (db RedisDB) Exists(ctx context.Context, pubkey string) (bool, error) {
+	exists, err := db.client.HExists(ctx, KeyKeyIndex, pubkey).Result()
 	if err != nil {
 		return false, fmt.Errorf("failed to check existance of pubkey %s: %w", pubkey, err)
 	}
 	return exists, nil
 }
 
-func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
+func (db RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
 	if len(IDs) == 0 {
 		return nil
 	}
@@ -148,7 +148,7 @@ func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
 		nodes[i] = node(ID)
 	}
 
-	exists, err := r.client.Exists(ctx, nodes...).Result()
+	exists, err := db.client.Exists(ctx, nodes...).Result()
 	if err != nil {
 		return fmt.Errorf("failed to check for the existence of %d nodes: %w", len(IDs), err)
 	}
@@ -161,8 +161,8 @@ func (r RedisDB) ensureExists(ctx context.Context, IDs ...graph.ID) error {
 }
 
 // AddNode adds a new inactive node to the database and returns its assigned ID
-func (r RedisDB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
-	exists, err := r.client.HExists(ctx, KeyKeyIndex, pubkey).Result()
+func (db RedisDB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
+	exists, err := db.client.HExists(ctx, KeyKeyIndex, pubkey).Result()
 	if err != nil {
 		return "", fmt.Errorf("failed to check for existence of pubkey %s: %w", pubkey, err)
 	}
@@ -173,13 +173,13 @@ func (r RedisDB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
 
 	// get the ID outside the transaction, which implies there might be "holes",
 	// meaning IDs not associated with any node
-	next, err := r.client.HIncrBy(ctx, KeyDatabase, KeyLastNodeID, 1).Result()
+	next, err := db.client.HIncrBy(ctx, KeyDatabase, KeyLastNodeID, 1).Result()
 	if err != nil {
 		return "", fmt.Errorf("failed to add node with pubkey %s: failed to increment ID", pubkey)
 	}
 	ID := strconv.FormatInt(next-1, 10)
 
-	pipe := r.client.TxPipeline()
+	pipe := db.client.TxPipeline()
 	pipe.HSetNX(ctx, KeyKeyIndex, pubkey, ID)
 	pipe.HSet(ctx, node(ID), NodeID, ID, NodePubkey, pubkey, NodeStatus, graph.StatusInactive, NodeAddedTS, time.Now().Unix())
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -190,8 +190,8 @@ func (r RedisDB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
 }
 
 // Promote changes the node status to active
-func (r RedisDB) Promote(ctx context.Context, ID graph.ID) error {
-	err := r.client.HSet(ctx, node(ID), NodeStatus, graph.StatusActive, NodePromotionTS, time.Now().Unix()).Err()
+func (db RedisDB) Promote(ctx context.Context, ID graph.ID) error {
+	err := db.client.HSet(ctx, node(ID), NodeStatus, graph.StatusActive, NodePromotionTS, time.Now().Unix()).Err()
 	if err != nil {
 		return fmt.Errorf("failed to promote %s: %w", node(ID), err)
 	}
@@ -199,8 +199,8 @@ func (r RedisDB) Promote(ctx context.Context, ID graph.ID) error {
 }
 
 // Demote changes the node status to inactive
-func (r RedisDB) Demote(ctx context.Context, ID graph.ID) error {
-	err := r.client.HSet(ctx, node(ID), NodeStatus, graph.StatusInactive, NodeDemotionTS, time.Now().Unix()).Err()
+func (db RedisDB) Demote(ctx context.Context, ID graph.ID) error {
+	err := db.client.HSet(ctx, node(ID), NodeStatus, graph.StatusInactive, NodeDemotionTS, time.Now().Unix()).Err()
 	if err != nil {
 		return fmt.Errorf("failed to demote %s: %w", node(ID), err)
 	}
@@ -208,24 +208,24 @@ func (r RedisDB) Demote(ctx context.Context, ID graph.ID) error {
 }
 
 // Follows returns the follow list of node. If node is not found, it returns [graph.ErrNodeNotFound].
-func (r RedisDB) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
-	return r.members(ctx, follows, node)
+func (db RedisDB) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+	return db.members(ctx, follows, node)
 }
 
 // Followers returns the list of followers of node. If node is not found, it returns [graph.ErrNodeNotFound].
-func (r RedisDB) Followers(ctx context.Context, node graph.ID) ([]graph.ID, error) {
-	return r.members(ctx, followers, node)
+func (db RedisDB) Followers(ctx context.Context, node graph.ID) ([]graph.ID, error) {
+	return db.members(ctx, followers, node)
 }
 
-func (r RedisDB) members(ctx context.Context, key func(graph.ID) string, node graph.ID) ([]graph.ID, error) {
-	members, err := r.client.SMembers(ctx, key(node)).Result()
+func (db RedisDB) members(ctx context.Context, key func(graph.ID) string, node graph.ID) ([]graph.ID, error) {
+	members, err := db.client.SMembers(ctx, key(node)).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch %s: %w", key(node), err)
 	}
 
 	if len(members) == 0 {
 		// check if there are no members because node doesn't exists
-		if err := r.ensureExists(ctx, node); err != nil {
+		if err := db.ensureExists(ctx, node); err != nil {
 			return nil, fmt.Errorf("failed to fetch %s: %w", key(node), err)
 		}
 	}
@@ -235,17 +235,17 @@ func (r RedisDB) members(ctx context.Context, key func(graph.ID) string, node gr
 
 // BulkFollows returns the follow-lists of all the provided nodes.
 // Do not call on too many nodes (e.g. +100k) to avoid too many recursions.
-func (r RedisDB) BulkFollows(ctx context.Context, nodes []graph.ID) ([][]graph.ID, error) {
-	return r.bulkMembers(ctx, follows, nodes)
+func (db RedisDB) BulkFollows(ctx context.Context, nodes []graph.ID) ([][]graph.ID, error) {
+	return db.bulkMembers(ctx, follows, nodes)
 }
 
-func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nodes []graph.ID) ([][]graph.ID, error) {
+func (db RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nodes []graph.ID) ([][]graph.ID, error) {
 	switch {
 	case len(nodes) == 0:
 		return nil, nil
 
 	case len(nodes) < 10000:
-		pipe := r.client.Pipeline()
+		pipe := db.client.Pipeline()
 		cmds := make([]*redis.StringSliceCmd, len(nodes))
 
 		for i, node := range nodes {
@@ -270,7 +270,7 @@ func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nod
 		}
 
 		if len(empty) > 0 {
-			err := r.ensureExists(ctx, empty...)
+			err := db.ensureExists(ctx, empty...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch the %s of these nodes %v: %w", key(""), empty, err)
 			}
@@ -281,12 +281,12 @@ func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nod
 	default:
 		// too many nodes, split them in two batches
 		mid := len(nodes) / 2
-		batch1, err := r.bulkMembers(ctx, key, nodes[:mid])
+		batch1, err := db.bulkMembers(ctx, key, nodes[:mid])
 		if err != nil {
 			return nil, err
 		}
 
-		batch2, err := r.bulkMembers(ctx, key, nodes[mid:])
+		batch2, err := db.bulkMembers(ctx, key, nodes[mid:])
 		if err != nil {
 			return nil, err
 		}
@@ -296,21 +296,21 @@ func (r RedisDB) bulkMembers(ctx context.Context, key func(graph.ID) string, nod
 }
 
 // FollowCounts returns the number of follows each node has. If a node is not found, it returns 0.
-func (r RedisDB) FollowCounts(ctx context.Context, nodes ...graph.ID) ([]int, error) {
-	return r.counts(ctx, follows, nodes...)
+func (db RedisDB) FollowCounts(ctx context.Context, nodes ...graph.ID) ([]int, error) {
+	return db.counts(ctx, follows, nodes...)
 }
 
 // FollowerCounts returns the number of followers each node has. If a node is not found, it returns 0.
-func (r RedisDB) FollowerCounts(ctx context.Context, nodes ...graph.ID) ([]int, error) {
-	return r.counts(ctx, followers, nodes...)
+func (db RedisDB) FollowerCounts(ctx context.Context, nodes ...graph.ID) ([]int, error) {
+	return db.counts(ctx, followers, nodes...)
 }
 
-func (r RedisDB) counts(ctx context.Context, key func(graph.ID) string, nodes ...graph.ID) ([]int, error) {
+func (db RedisDB) counts(ctx context.Context, key func(graph.ID) string, nodes ...graph.ID) ([]int, error) {
 	if len(nodes) == 0 {
 		return nil, nil
 	}
 
-	pipe := r.client.Pipeline()
+	pipe := db.client.Pipeline()
 	cmds := make([]*redis.IntCmd, len(nodes))
 
 	for i, node := range nodes {
@@ -330,19 +330,19 @@ func (r RedisDB) counts(ctx context.Context, key func(graph.ID) string, nodes ..
 }
 
 // Update applies the delta to the graph.
-func (r RedisDB) Update(ctx context.Context, delta *graph.Delta) error {
+func (db RedisDB) Update(ctx context.Context, delta graph.Delta) error {
 	if delta.Size() == 0 {
 		return nil
 	}
 
-	err := r.ensureExists(ctx, delta.Node)
+	err := db.ensureExists(ctx, delta.Node)
 	if err != nil {
 		return fmt.Errorf("failed to update with delta %v: %w", delta, err)
 	}
 
 	switch delta.Kind {
 	case nostr.KindFollowList:
-		err = r.updateFollows(ctx, delta)
+		err = db.updateFollows(ctx, delta)
 
 	default:
 		err = fmt.Errorf("unsupported kind %d", delta.Kind)
@@ -355,8 +355,8 @@ func (r RedisDB) Update(ctx context.Context, delta *graph.Delta) error {
 	return nil
 }
 
-func (r RedisDB) updateFollows(ctx context.Context, delta *graph.Delta) error {
-	pipe := r.client.TxPipeline()
+func (db RedisDB) updateFollows(ctx context.Context, delta graph.Delta) error {
+	pipe := db.client.TxPipeline()
 	if len(delta.Add) > 0 {
 		// add all node --> added
 		pipe.SAdd(ctx, follows(delta.Node), toStrings(delta.Add))
@@ -370,8 +370,8 @@ func (r RedisDB) updateFollows(ctx context.Context, delta *graph.Delta) error {
 		// remove all node --> removed
 		pipe.SRem(ctx, follows(delta.Node), toStrings(delta.Remove))
 
-		for _, r := range delta.Remove {
-			pipe.SRem(ctx, followers(r), delta.Node)
+		for _, db := range delta.Remove {
+			pipe.SRem(ctx, followers(db), delta.Node)
 		}
 	}
 
@@ -384,12 +384,12 @@ func (r RedisDB) updateFollows(ctx context.Context, delta *graph.Delta) error {
 
 // NodeIDs returns a slice of node IDs assosiated with the pubkeys.
 // If a pubkey is not found, an empty ID "" is returned
-func (r RedisDB) NodeIDs(ctx context.Context, pubkeys ...string) ([]graph.ID, error) {
+func (db RedisDB) NodeIDs(ctx context.Context, pubkeys ...string) ([]graph.ID, error) {
 	if len(pubkeys) == 0 {
 		return nil, nil
 	}
 
-	IDs, err := r.client.HMGet(ctx, KeyKeyIndex, pubkeys...).Result()
+	IDs, err := db.client.HMGet(ctx, KeyKeyIndex, pubkeys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch the node IDs of %v: %w", pubkeys, err)
 	}
@@ -398,10 +398,12 @@ func (r RedisDB) NodeIDs(ctx context.Context, pubkeys ...string) ([]graph.ID, er
 	for i, ID := range IDs {
 		switch ID {
 		case nil:
-			nodes[i] = "" // empty ID means missing pubkey
+			// empty ID means missing pubkey
+			nodes[i] = ""
 
 		default:
-			nodes[i] = graph.ID(ID.(string)) // no need to type-assert because everything in redis is a string
+			// direct type convertion because everything in redis is a string
+			nodes[i] = graph.ID(ID.(string))
 		}
 	}
 
@@ -410,12 +412,12 @@ func (r RedisDB) NodeIDs(ctx context.Context, pubkeys ...string) ([]graph.ID, er
 
 // Pubkeys returns a slice of pubkeys assosiated with the node IDs.
 // If a node ID is not found, an empty pubkey "" is returned
-func (r RedisDB) Pubkeys(ctx context.Context, nodes ...graph.ID) ([]string, error) {
+func (db RedisDB) Pubkeys(ctx context.Context, nodes ...graph.ID) ([]string, error) {
 	if len(nodes) == 0 {
 		return nil, nil
 	}
 
-	pipe := r.client.Pipeline()
+	pipe := db.client.Pipeline()
 	cmds := make([]*redis.StringCmd, len(nodes))
 	for i, ID := range nodes {
 		cmds[i] = pipe.HGet(ctx, node(ID), NodePubkey)
@@ -443,12 +445,56 @@ func (r RedisDB) Pubkeys(ctx context.Context, nodes ...graph.ID) ([]string, erro
 	return pubkeys, nil
 }
 
+type MissingHandler func(ctx context.Context, db RedisDB, pubkey string) (graph.ID, error)
+
+func Ignore(context.Context, RedisDB, string) (graph.ID, error)   { return "", nil }
+func Sentinel(context.Context, RedisDB, string) (graph.ID, error) { return "-1", nil }
+
+func AddValid(ctx context.Context, db RedisDB, pubkey string) (graph.ID, error) {
+	if !nostr.IsValidPublicKey(pubkey) {
+		return "", nil
+	}
+	return db.AddNode(ctx, pubkey)
+}
+
+// Resolve pubkeys into node IDs. If a pubkey is missing (ID = ""), it applies the onMissing handler.
+func (db RedisDB) Resolve(ctx context.Context, pubkeys []string, onMissing MissingHandler) ([]graph.ID, error) {
+	IDs, err := db.NodeIDs(ctx, pubkeys...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve pubkeys: %w", err)
+	}
+
+	j := 0 // write index
+	for i, ID := range IDs {
+		switch ID {
+		case "":
+			ID, err = onMissing(ctx, db, pubkeys[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve pubkey %q: %w", pubkeys[i], err)
+			}
+
+			if ID != "" {
+				IDs[j] = ID
+				j++
+			}
+
+		default:
+			if j != i {
+				// write only if necessary
+				IDs[j] = ID
+			}
+			j++
+		}
+	}
+	return IDs[:j], nil
+}
+
 // ScanNodes to return a batch of node IDs of size roughly proportional to limit.
 // Limit controls how much "work" is invested in fetching the batch, hence it's not precise.
 // Learn more about scan: https://redis.io/docs/latest/commands/scan/
-func (r RedisDB) ScanNodes(ctx context.Context, cursor uint64, limit int) ([]graph.ID, uint64, error) {
+func (db RedisDB) ScanNodes(ctx context.Context, cursor uint64, limit int) ([]graph.ID, uint64, error) {
 	match := KeyNodePrefix + "*"
-	keys, cursor, err := r.client.Scan(ctx, cursor, match, int64(limit)).Result()
+	keys, cursor, err := db.client.Scan(ctx, cursor, match, int64(limit)).Result()
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to scan for keys matching %s: %w", match, err)
 	}

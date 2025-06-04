@@ -238,7 +238,7 @@ func TestUpdateFollows(t *testing.T) {
 	}
 	defer db.flushAll()
 
-	delta := &graph.Delta{
+	delta := graph.Delta{
 		Kind:   nostr.KindFollowList,
 		Node:   "0",
 		Remove: []graph.ID{"1"},
@@ -313,6 +313,57 @@ func TestNodeIDs(t *testing.T) {
 			defer db.flushAll()
 
 			nodes, err := db.NodeIDs(ctx, test.pubkeys...)
+			if err != nil {
+				t.Fatalf("expected error nil, got %v", err)
+			}
+
+			if !reflect.DeepEqual(nodes, test.expected) {
+				t.Fatalf("expected nodes %v, got %v", test.expected, nodes)
+			}
+		})
+	}
+}
+
+func TestResolve(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func() (RedisDB, error)
+		pubkeys   []string
+		onMissing MissingHandler
+		expected  []graph.ID
+	}{
+		{
+			name:      "empty database",
+			setup:     Empty,
+			pubkeys:   []string{"0"},
+			onMissing: Sentinel,
+			expected:  []graph.ID{"-1"},
+		},
+		{
+			name:      "node not found, ignore",
+			setup:     OneNode,
+			pubkeys:   []string{"1"},
+			onMissing: Ignore,
+			expected:  []graph.ID{},
+		},
+		{
+			name:      "valid",
+			setup:     Simple,
+			pubkeys:   []string{"0", "69", "1"},
+			onMissing: Ignore,
+			expected:  []graph.ID{"0", "1"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := test.setup()
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			defer db.flushAll()
+
+			nodes, err := db.Resolve(ctx, test.pubkeys, test.onMissing)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}

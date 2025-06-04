@@ -124,13 +124,17 @@ func TestUpdateRemove(t *testing.T) {
 	Alpha = 1 // avoid early stopping, which makes the test deterministic
 	expected := []Walk{{ID: "0", Path: []graph.ID{"0", "3", "2"}}}
 
-	toUpdate, err := ToUpdate(context.Background(), walker, delta, walks)
+	old, new, err := ToUpdate(context.Background(), walker, delta, walks)
 	if err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 
-	if !reflect.DeepEqual(toUpdate, expected) {
-		t.Errorf("expected %v, got %v", expected, toUpdate)
+	if !reflect.DeepEqual(old, walks[:1]) {
+		t.Errorf("expected old %v, got %v", walks[:1], old)
+	}
+
+	if !reflect.DeepEqual(new, expected) {
+		t.Errorf("expected new %v, got %v", expected, new)
 	}
 }
 

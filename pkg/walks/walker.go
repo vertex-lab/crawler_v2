@@ -77,7 +77,7 @@ func (c *CachedWalker) Add(node graph.ID, follows []graph.ID) error {
 	return nil
 }
 
-// Add node and follows as edges. It evicts the LRU element if the capacity has been exeeded.
+// Add node and follows as [edges]. It evicts the LRU element if the capacity has been exeeded.
 func (c *CachedWalker) add(node uint32, follows []uint32) {
 	if e, ok := c.lookup[node]; ok {
 		// node already present, update value

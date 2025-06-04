@@ -34,9 +34,23 @@ func (w Walk) Len() int {
 	return len(w.Path)
 }
 
-// Visits returns whether the walk visited node
-func (w Walk) Visits(node graph.ID) bool {
-	return slices.Contains(w.Path, node)
+// Visits returns whether the walk visits any of the nodes
+func (w Walk) Visits(nodes ...graph.ID) bool {
+	for _, node := range nodes {
+		if slices.Contains(w.Path, node) {
+			return true
+		}
+	}
+	return false
+}
+
+// VisitsAt returns whether the walk visits any of the nodes at the specified step.
+// If the step is outside the bouds of the walk, it returns false.
+func (w Walk) VisitsAt(step int, nodes ...graph.ID) bool {
+	if step < 0 || step >= w.Len() {
+		return false
+	}
+	return slices.Contains(nodes, w.Path[step])
 }
 
 // Index returns the index of node in the walk, or -1 if not present
@@ -89,7 +103,6 @@ func Divergence(w1, w2 Walk) int {
 		// they are all equal, so no divergence
 		return -1
 	}
-
 	return min
 }
 
@@ -176,9 +189,12 @@ func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 	return toRemove, nil
 }
 
-func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Walk) ([]Walk, error) {
-	toUpdate := make([]Walk, 0, expectedUpdates(walks, delta))
+// ToUpdate returns how the old walks need to be updated to reflect the changes in the graph.
+// In particular, it corrects invalid steps and resamples in order to maintain the correct distribution.
+func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Walk) (old, new []Walk, err error) {
 	resampleProbability := resampleProbability(delta)
+	old = make([]Walk, 0, expectedUpdates(walks, delta))
+	new = make([]Walk, 0, expectedUpdates(walks, delta))
 
 	for _, walk := range walks {
 		pos := walk.Index(delta.Node)
@@ -187,43 +203,44 @@ func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Wal
 			continue
 		}
 
-		shouldResample := rand.Float64() < resampleProbability
-		isInvalid := (pos < walk.Len()-1) && slices.Contains(delta.Remove, walk.Path[pos+1])
+		resample := rand.Float64() < resampleProbability
+		invalid := walk.VisitsAt(pos+1, delta.Remove...)
 
 		switch {
-		case shouldResample:
+		case resample:
 			// prune and graft with the added nodes to avoid oversampling of common nodes
 			updated := walk.Copy()
 			updated.Prune(pos + 1)
 
 			if rand.Float64() < Alpha {
-				new, err := generate(ctx, walker, delta.Add...)
+				path, err := generate(ctx, walker, delta.Add...)
 				if err != nil {
-					return nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
+					return nil, nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
 				}
 
-				updated.Graft(new)
+				updated.Graft(path)
 			}
 
-			toUpdate = append(toUpdate, updated)
+			old = append(old, walk)
+			new = append(new, updated)
 
-		case isInvalid:
+		case invalid:
 			// prune and graft invalid steps with the common nodes
 			updated := walk.Copy()
 			updated.Prune(pos + 1)
 
-			new, err := generate(ctx, walker, delta.Keep...)
+			path, err := generate(ctx, walker, delta.Keep...)
 			if err != nil {
-				return nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
+				return nil, nil, fmt.Errorf("ToUpdate: failed to generate new segment: %w", err)
 			}
 
-			updated.Graft(new)
-			toUpdate = append(toUpdate, updated)
+			updated.Graft(path)
+			old = append(old, walk)
+			new = append(new, updated)
 		}
-
 	}
 
-	return toUpdate, nil
+	return old, new, nil
 }
 
 // The resample probability that a walk needs to be changed to avoid an oversampling of common nodes.
@@ -236,9 +253,9 @@ func resampleProbability(delta graph.Delta) float64 {
 		return 0
 	}
 
-	c := float64(len(delta.Keep))
+	k := float64(len(delta.Keep))
 	a := float64(len(delta.Add))
-	return a / (a + c)
+	return a / (a + k)
 }
 
 func expectedUpdates(walks []Walk, delta graph.Delta) int {
@@ -248,14 +265,14 @@ func expectedUpdates(walks []Walk, delta graph.Delta) int {
 	}
 
 	r := float64(len(delta.Remove))
-	c := float64(len(delta.Keep))
+	k := float64(len(delta.Keep))
 	a := float64(len(delta.Add))
 
-	invalidProbability := Alpha * r / (r + c)
-	resampleProbability := a / (a + c)
-	updateProbability := invalidProbability + resampleProbability - invalidProbability*resampleProbability
-	expectedUpdates := float64(len(walks)) * updateProbability
-	return int(expectedUpdates + 0.5)
+	invalidP := Alpha * r / (r + k)
+	resampleP := a / (a + k)
+	updateP := invalidP + resampleP - invalidP*resampleP
+	expected := float64(len(walks)) * updateP
+	return int(expected + 0.5)
 }
 
 // returns a random element of a slice. It panics if the slice is empty or nil.

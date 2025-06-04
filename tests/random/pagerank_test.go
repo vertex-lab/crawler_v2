@@ -102,11 +102,11 @@ func TestPagerankDynamic(t *testing.T) {
 			inv := delta.Inverse()
 			test.walker.Update(ctx, inv)
 
-			toUpdate, err := walks.ToUpdate(ctx, test.walker, inv, rwalks)
+			_, new, err := walks.ToUpdate(ctx, test.walker, inv, rwalks)
 			if err != nil {
 				t.Fatalf("failed to update the walks: %v", err)
 			}
-			store.ReplaceWalks(toUpdate)
+			store.ReplaceWalks(new)
 
 			global, err := pagerank.Global(ctx, store, test.nodes...)
 			if err != nil {
