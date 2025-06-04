@@ -21,7 +21,7 @@ type ProcessorConfig struct {
 	PrintEvery int
 }
 
-func NewProcessEventsConfig() ProcessorConfig {
+func NewProcessorConfig() ProcessorConfig {
 	return ProcessorConfig{PrintEvery: 5000}
 }
 
@@ -126,6 +126,7 @@ func processFollowList(cache *walks.CachedWalker, db redb.RedisDB, event *nostr.
 		return err
 	}
 
+	walksTracker.Add(int32(len(new)))
 	return cache.Update(ctx, delta)
 }
 

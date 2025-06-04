@@ -12,7 +12,7 @@ import (
 
 var (
 	relevantKinds = []int{
-		nostr.KindProfileMetadata,
+		//nostr.KindProfileMetadata,
 		nostr.KindFollowList,
 	}
 
@@ -156,8 +156,8 @@ func (c FetcherConfig) Print() {
 	fmt.Printf("  Interval: %v\n", c.Interval)
 }
 
-// Fetcher extracts pubkeys from the channel and queries for their events when either:
-// - the batch is bigger than config.Batch
+// Fetcher extracts pubkeys from the channel and queries for their events:
+// - when the batch is bigger than config.Batch
 // - after config.Interval since the last query.
 func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, send func(*nostr.Event) error) {
 	batch := make([]string, 0, config.Batch)

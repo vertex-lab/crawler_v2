@@ -39,7 +39,7 @@ type RedisDB struct {
 
 func New(opt *redis.Options) RedisDB {
 	db := RedisDB{client: redis.NewClient(opt)}
-	if err := db.validateWalks(); err != nil {
+	if err := db.init(); err != nil {
 		panic(err)
 	}
 	return db
@@ -49,7 +49,7 @@ func New(opt *redis.Options) RedisDB {
 func (db RedisDB) Size(ctx context.Context) (int, error) {
 	size, err := db.client.DBSize(ctx).Result()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to fetch the db size: %w", err)
 	}
 	return int(size), nil
 }
@@ -58,7 +58,7 @@ func (db RedisDB) Size(ctx context.Context) (int, error) {
 func (db RedisDB) NodeCount(ctx context.Context) (int, error) {
 	nodes, err := db.client.HLen(ctx, KeyKeyIndex).Result()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to fetch the node count: %w", err)
 	}
 	return int(nodes), nil
 }

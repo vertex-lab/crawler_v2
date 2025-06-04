@@ -14,25 +14,24 @@ import (
 
 // walksTracker tracks the number of walks that have been updated by [Processor].
 // It's used to wake-up the [Arbiter], which performs work and then resets it to 0.
-var walksTracker *atomic.Int32
+var walksTracker atomic.Int32
 
 type ArbiterConfig struct {
 	Activation float64
 	Promotion  float64
 	Demotion   float64
 
-	PingPeriod time.Duration
-	WaitPeriod time.Duration
+	PromotionWait time.Duration
+	PingWait      time.Duration
 }
 
 func NewArbiterConfig() ArbiterConfig {
 	return ArbiterConfig{
-		Activation: 0.01,
-		Promotion:  0.1,
-		Demotion:   1.05,
-
-		PingPeriod: time.Minute,
-		WaitPeriod: time.Hour,
+		Activation:    0.01,
+		Promotion:     0.1,
+		Demotion:      1.05,
+		PromotionWait: time.Hour,
+		PingWait:      time.Minute,
 	}
 }
 
@@ -41,15 +40,18 @@ func (c ArbiterConfig) Print() {
 	fmt.Printf("  Activation: %f\n", c.Activation)
 	fmt.Printf("  Promotion: %f\n", c.Promotion)
 	fmt.Printf("  Demotion: %f\n", c.Demotion)
-	fmt.Printf("  WaitPeriod: %v\n", c.WaitPeriod)
+	fmt.Printf("  PromotionWait: %v\n", c.PromotionWait)
+	fmt.Printf("  PingWait: %v\n", c.PingWait)
 }
 
 // Arbiter activates when the % of walks changed is greater than a threshold. Then it:
 // - scans through all the nodes in the database
 // - promotes or demotes nodes
 func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send func(pk string) error) {
-	ticker := time.NewTicker(config.PingPeriod)
+	ticker := time.NewTicker(config.PingWait)
 	defer ticker.Stop()
+
+	walksTracker.Add(1000_000_000) // trigger a scan at startup
 
 	for {
 		select {
@@ -140,7 +142,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 					return promoted, demoted, fmt.Errorf("node %s doesn't have an addition record", node.ID)
 				}
 
-				if ranks[i] >= promotionThreshold && time.Since(added) > config.WaitPeriod {
+				if ranks[i] >= promotionThreshold && time.Since(added) > config.PromotionWait {
 					if err := promote(db, node.ID); err != nil {
 						return promoted, demoted, err
 					}

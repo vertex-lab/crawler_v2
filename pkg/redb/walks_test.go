@@ -11,30 +11,30 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestValidate(t *testing.T) {
-	tests := []struct {
-		name  string
-		setup func() (RedisDB, error)
-		err   error
-	}{
-		{name: "empty", setup: Empty, err: ErrValueIsNil},
-		{name: "valid", setup: SomeWalks(0)},
-	}
+// func TestValidate(t *testing.T) {
+// 	tests := []struct {
+// 		name  string
+// 		setup func() (RedisDB, error)
+// 		err   error
+// 	}{
+// 		{name: "empty", setup: Empty, err: ErrValueIsNil},
+// 		{name: "valid", setup: SomeWalks(0)},
+// 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			db, err := test.setup()
-			if err != nil {
-				t.Fatalf("setup failed: %v", err)
-			}
-			defer db.flushAll()
+// 	for _, test := range tests {
+// 		t.Run(test.name, func(t *testing.T) {
+// 			db, err := test.setup()
+// 			if err != nil {
+// 				t.Fatalf("setup failed: %v", err)
+// 			}
+// 			defer db.flushAll()
 
-			if err = db.validateWalks(); !errors.Is(err, test.err) {
-				t.Fatalf("expected error %v, got %v", test.err, err)
-			}
-		})
-	}
-}
+// 			if err = db.validateWalks(); !errors.Is(err, test.err) {
+// 				t.Fatalf("expected error %v, got %v", test.err, err)
+// 			}
+// 		})
+// 	}
+// }
 
 func TestWalksVisiting(t *testing.T) {
 	tests := []struct {
