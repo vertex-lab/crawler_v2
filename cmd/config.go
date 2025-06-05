@@ -174,6 +174,12 @@ func LoadConfig() (*Config, error) {
 			}
 			config.Arbiter.PromotionWait = time.Duration(wait) * time.Second
 
+		case "PROCESSOR_CACHE_CAPACITY":
+			config.Processor.CacheCapacity, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
+			}
+
 		case "PROCESSOR_PRINT_EVERY":
 			config.Processor.PrintEvery, err = strconv.Atoi(val)
 			if err != nil {

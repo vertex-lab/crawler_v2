@@ -18,15 +18,19 @@ import (
 var ErrUnsupportedKind = errors.New("unsupported event kind")
 
 type ProcessorConfig struct {
-	PrintEvery int
+	CacheCapacity int
+	PrintEvery    int
 }
 
 func NewProcessorConfig() ProcessorConfig {
-	return ProcessorConfig{PrintEvery: 5000}
+	return ProcessorConfig{
+		CacheCapacity: 10000,
+		PrintEvery:    5000}
 }
 
 func (c ProcessorConfig) Print() {
 	fmt.Printf("Processor\n")
+	fmt.Printf("  CacheCapacity: %d\n", c.CacheCapacity)
 	fmt.Printf("  PrintEvery: %d\n", c.PrintEvery)
 }
 
@@ -41,7 +45,7 @@ func Processor(
 	var processed int
 
 	cache := walks.NewWalker(
-		walks.WithCapacity(10000),
+		walks.WithCapacity(config.CacheCapacity),
 		walks.WithFallback(db),
 		walks.WithLogFile("cache.log"),
 	)
@@ -60,7 +64,7 @@ func Processor(
 				err = processFollowList(cache, db, event)
 
 			case nostr.KindProfileMetadata:
-				err = nil //HandleProfileMetadata(eventStore, event)
+				err = nil
 
 			default:
 				err = ErrUnsupportedKind
@@ -78,8 +82,11 @@ func Processor(
 	}
 }
 
+// processFollowList parses the pubkeys listed in the event, and uses them to:
+// - update the follows of the author (db and cache)
+// - update the author's random walks and signal the number to the [WalksTracker]
 func processFollowList(cache *walks.CachedWalker, db redb.RedisDB, event *nostr.Event) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	author, err := db.NodeByKey(ctx, event.PubKey)
@@ -137,11 +144,7 @@ const (
 	maxFollows   = 50000
 )
 
-// ParsePubkeys returns the slice of pubkeys that are correctly listed in the nostr.Tags.
-// - Badly formatted tags are ignored.
-// - Pubkeys will be uniquely added (no repetitions).
-// - The author of the event will be removed from the followed pubkeys if present.
-// - NO CHECKING the validity of the pubkeys
+// parse unique pubkeys (excluding author) from the "p" tags in the event.
 func parsePubkeys(event *nostr.Event) []string {
 	pubkeys := make([]string, 0, min(len(event.Tags), maxFollows))
 	for _, tag := range event.Tags {
