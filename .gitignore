@@ -1,16 +1,8 @@
-# Ignore all log files
+# ignore all logs
 **/*.log
 
-# Ignore all the .env
+# ignore all .env
 **/*.env
 
-# Ignore all sqlite files
-**/*.sqlite
-**/*-shm
-**/*-wal
-
-# Ignore all images
-**/*.jpeg
-
-# Ignore the debugs
+# ignore the debugs
 .vscode
