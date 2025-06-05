@@ -7,7 +7,7 @@ import (
 	"github/pippellia-btc/crawler/pkg/pagerank"
 	"github/pippellia-btc/crawler/pkg/redb"
 	"github/pippellia-btc/crawler/pkg/walks"
-	"github/pippellia-btc/crawler/tests/random"
+	test "github/pippellia-btc/crawler/tests/random"
 	"math"
 	"testing"
 
@@ -104,7 +104,7 @@ func TestPagerank(t *testing.T) {
 	}
 
 	walker := walks.NewSimpleWalker(followMap)
-	store := random.NewWalkStore()
+	store := test.NewWalkStore()
 
 	fmt.Println(" > db copied")
 	fmt.Printf(" > generating walks...\n")
@@ -140,7 +140,7 @@ func TestPagerank(t *testing.T) {
 	}
 
 	expected := expectedDistance(active, len(nodes))
-	distance := random.Distance(original, recomputed)
+	distance := test.Distance(original, recomputed)
 	fmt.Printf("expected distance %f, got %f\n", expected, distance)
 
 	if distance > expected {
