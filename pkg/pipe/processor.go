@@ -30,7 +30,6 @@ func (c ProcessorConfig) Print() {
 	fmt.Printf("  PrintEvery: %d\n", c.PrintEvery)
 }
 
-// Processor() process one event at the time from the eventChannel, based on their kind.
 func Processor(
 	ctx context.Context,
 	config ProcessorConfig,
@@ -44,7 +43,10 @@ func Processor(
 	cache := walks.NewWalker(
 		walks.WithCapacity(10000),
 		walks.WithFallback(db),
+		walks.WithLogFile("cache.log"),
 	)
+
+	log.Println("Processor: ready to process events")
 
 	for {
 		select {
@@ -126,7 +128,7 @@ func processFollowList(cache *walks.CachedWalker, db redb.RedisDB, event *nostr.
 		return err
 	}
 
-	walksTracker.Add(int32(len(new)))
+	WalksTracker.Add(int32(len(new)))
 	return cache.Update(ctx, delta)
 }
 

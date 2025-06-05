@@ -388,8 +388,8 @@ var defaultWalk = walks.Walk{Path: []graph.ID{"0", "1"}}
 
 func SomeWalks(n int) func() (RedisDB, error) {
 	return func() (RedisDB, error) {
-		db := RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}
-		if err := db.client.HSet(ctx, KeyRWS, KeyAlpha, walks.Alpha, KeyWalksPerNode, walks.N).Err(); err != nil {
+		db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+		if err := db.Client.HSet(ctx, KeyRWS, KeyAlpha, walks.Alpha, KeyWalksPerNode, walks.N).Err(); err != nil {
 			return RedisDB{}, err
 		}
 

@@ -34,7 +34,7 @@ var (
 // If it doesn't, store [walks.Alpha] and [walks.N]
 func (db RedisDB) init() error {
 	ctx := context.Background()
-	exists, err := db.client.Exists(ctx, KeyRWS).Result()
+	exists, err := db.Client.Exists(ctx, KeyRWS).Result()
 	if err != nil {
 		return fmt.Errorf("failed to check for existence of %s %w", KeyRWS, err)
 	}
@@ -42,7 +42,7 @@ func (db RedisDB) init() error {
 	switch exists {
 	case 1:
 		// exists, check the values
-		vals, err := db.client.HMGet(ctx, KeyRWS, KeyAlpha, KeyWalksPerNode).Result()
+		vals, err := db.Client.HMGet(ctx, KeyRWS, KeyAlpha, KeyWalksPerNode).Result()
 		if err != nil {
 			return fmt.Errorf("failed to fetch alpha and walksPerNode %w", err)
 		}
@@ -67,7 +67,7 @@ func (db RedisDB) init() error {
 
 	case 0:
 		// doesn't exists, seed the values
-		err := db.client.HSet(ctx, KeyRWS, KeyAlpha, walks.Alpha, KeyWalksPerNode, walks.N).Err()
+		err := db.Client.HSet(ctx, KeyRWS, KeyAlpha, walks.Alpha, KeyWalksPerNode, walks.N).Err()
 		if err != nil {
 			return fmt.Errorf("failed to set alpha and walksPerNode %w", err)
 		}
@@ -86,7 +86,7 @@ func (db RedisDB) Walks(ctx context.Context, IDs ...walks.ID) ([]walks.Walk, err
 		return nil, nil
 
 	case len(IDs) <= 100000:
-		vals, err := db.client.HMGet(ctx, KeyWalks, toStrings(IDs)...).Result()
+		vals, err := db.Client.HMGet(ctx, KeyWalks, toStrings(IDs)...).Result()
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch walks: %w", err)
 		}
@@ -127,7 +127,7 @@ func (db RedisDB) WalksVisiting(ctx context.Context, node graph.ID, limit int) (
 	switch {
 	case limit == -1:
 		// return all walks visiting node
-		IDs, err := db.client.SMembers(ctx, walksVisiting(node)).Result()
+		IDs, err := db.Client.SMembers(ctx, walksVisiting(node)).Result()
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch %s: %w", walksVisiting(node), err)
 		}
@@ -135,7 +135,7 @@ func (db RedisDB) WalksVisiting(ctx context.Context, node graph.ID, limit int) (
 		return db.Walks(ctx, toWalks(IDs)...)
 
 	case limit > 0:
-		IDs, err := db.client.SRandMemberN(ctx, walksVisiting(node), int64(limit)).Result()
+		IDs, err := db.Client.SRandMemberN(ctx, walksVisiting(node), int64(limit)).Result()
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch %s: %w", walksVisiting(node), err)
 		}
@@ -155,7 +155,7 @@ func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit 
 	switch {
 	case limit == -1:
 		// return all walks visiting all nodes
-		pipe := db.client.Pipeline()
+		pipe := db.Client.Pipeline()
 		cmds := make([]*redis.StringSliceCmd, len(nodes))
 
 		for i, node := range nodes {
@@ -181,7 +181,7 @@ func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit 
 			return nil, nil
 		}
 
-		pipe := db.client.Pipeline()
+		pipe := db.Client.Pipeline()
 		cmds := make([]*redis.StringSliceCmd, len(nodes))
 
 		for i, node := range nodes {
@@ -214,13 +214,13 @@ func (db RedisDB) AddWalks(ctx context.Context, walks ...walks.Walk) error {
 
 	// get the IDs outside the transaction, which implies there might be "holes",
 	// meaning IDs not associated with any walk
-	next, err := db.client.HIncrBy(ctx, KeyRWS, KeyLastWalkID, int64(len(walks))).Result()
+	next, err := db.Client.HIncrBy(ctx, KeyRWS, KeyLastWalkID, int64(len(walks))).Result()
 	if err != nil {
 		return fmt.Errorf("failed to add walks: failed to increment ID: %w", err)
 	}
 
 	var visits, ID int
-	pipe := db.client.TxPipeline()
+	pipe := db.Client.TxPipeline()
 
 	for i, walk := range walks {
 		visits += walk.Len()
@@ -248,7 +248,7 @@ func (db RedisDB) RemoveWalks(ctx context.Context, walks ...walks.Walk) error {
 	}
 
 	var visits int
-	pipe := db.client.TxPipeline()
+	pipe := db.Client.TxPipeline()
 
 	for _, walk := range walks {
 		pipe.HDel(ctx, KeyWalks, string(walk.ID))
@@ -275,7 +275,7 @@ func (db RedisDB) ReplaceWalks(ctx context.Context, before, after []walks.Walk) 
 	}
 
 	var visits int64
-	pipe := db.client.TxPipeline()
+	pipe := db.Client.TxPipeline()
 
 	for i := range before {
 		div := walks.Divergence(before[i], after[i])
@@ -308,7 +308,7 @@ func (db RedisDB) ReplaceWalks(ctx context.Context, before, after []walks.Walk) 
 				return fmt.Errorf("failed to replace walks: pipeline failed %w", err)
 			}
 
-			pipe = db.client.TxPipeline()
+			pipe = db.Client.TxPipeline()
 			visits = 0
 		}
 	}
@@ -345,7 +345,7 @@ func validateReplacement(old, new []walks.Walk) error {
 
 // TotalVisits returns the total number of visits, which is the sum of the lengths of all walks.
 func (db RedisDB) TotalVisits(ctx context.Context) (int, error) {
-	total, err := db.client.HGet(ctx, KeyRWS, KeyTotalVisits).Result()
+	total, err := db.Client.HGet(ctx, KeyRWS, KeyTotalVisits).Result()
 	if err != nil {
 		return -1, fmt.Errorf("failed to get the total number of visits: %w", err)
 	}
@@ -360,7 +360,7 @@ func (db RedisDB) TotalVisits(ctx context.Context) (int, error) {
 
 // TotalWalks returns the total number of walks.
 func (db RedisDB) TotalWalks(ctx context.Context) (int, error) {
-	total, err := db.client.HLen(ctx, KeyWalks).Result()
+	total, err := db.Client.HLen(ctx, KeyWalks).Result()
 	if err != nil {
 		return -1, fmt.Errorf("failed to get the total number of walks: %w", err)
 	}
@@ -372,6 +372,29 @@ func (db RedisDB) TotalWalks(ctx context.Context) (int, error) {
 // If a node is not found, it returns 0 visits.
 func (db RedisDB) Visits(ctx context.Context, nodes ...graph.ID) ([]int, error) {
 	return db.counts(ctx, walksVisiting, nodes...)
+}
+
+// ScanWalks to return a batch of walks of size roughly proportional to limit.
+// Limit controls how much "work" is invested in fetching the batch, hence it's not precise.
+// Learn more about scan: https://redis.io/docs/latest/commands/hscan/
+func (db RedisDB) ScanWalks(ctx context.Context, cursor uint64, limit int) ([]walks.Walk, uint64, error) {
+	keyVals, cursor, err := db.Client.HScan(ctx, KeyWalks, cursor, "*", int64(limit)).Result()
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to scan for walks: %w", err)
+	}
+
+	if len(keyVals)%2 != 0 {
+		return nil, 0, fmt.Errorf("unexpected HSCAN result length: got %d elements", len(keyVals))
+	}
+
+	batch := make([]walks.Walk, 0, len(keyVals)/2)
+	for i := 0; i < len(keyVals); i += 2 {
+		walk := parseWalk(keyVals[i+1])
+		walk.ID = walks.ID(keyVals[i])
+		batch = append(batch, walk)
+	}
+
+	return batch, cursor, nil
 }
 
 // unique returns a slice of unique elements of the input slice.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"log"
+	"os"
 	"strconv"
 )
 
@@ -26,12 +27,15 @@ type CachedWalker struct {
 	capacity int
 
 	// for stats
-	calls, hits, misses int
+	calls, hits int
+	log         *log.Logger
 
 	fallback Walker
 }
 
 type Option func(*CachedWalker)
+
+func WithFallback(w Walker) Option { return func(c *CachedWalker) { c.fallback = w } }
 
 func WithCapacity(cap int) Option {
 	return func(c *CachedWalker) {
@@ -40,7 +44,15 @@ func WithCapacity(cap int) Option {
 	}
 }
 
-func WithFallback(w Walker) Option { return func(c *CachedWalker) { c.fallback = w } }
+func WithLogFile(filename string) Option {
+	return func(c *CachedWalker) {
+		file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
+		}
+		c.log = log.New(file, "cache: ", log.LstdFlags)
+	}
+}
 
 func NewWalker(opts ...Option) *CachedWalker {
 	c := &CachedWalker{
@@ -109,8 +121,11 @@ func (c *CachedWalker) Size() int {
 }
 
 func (c *CachedWalker) logStats() {
-	log.Printf("cache: calls %d, hits %d, misses %d", c.calls, c.hits, c.misses)
-	c.calls, c.hits, c.misses = 0, 0, 0
+	if c.log != nil {
+		hitRatio := 100 * float64(c.hits) / float64(c.calls)
+		c.log.Printf("calls %d, hits %f%%", c.calls, hitRatio)
+		c.calls, c.hits = 0, 0
+	}
 }
 
 func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
@@ -120,7 +135,7 @@ func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, 
 	}
 
 	c.calls++
-	if c.calls >= 10000 {
+	if c.calls >= 1000_000 {
 		defer c.logStats()
 	}
 
@@ -131,7 +146,6 @@ func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, 
 		return nodes(element.Value.(edges).follows), nil
 	}
 
-	c.misses++
 	if c.fallback == nil {
 		return nil, fmt.Errorf("%w: %s", graph.ErrNodeNotFound, node)
 	}

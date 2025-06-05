@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/pipe"
 	"github/pippellia-btc/crawler/pkg/redb"
@@ -9,12 +10,17 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
 )
+
+var events chan *nostr.Event
+var pubkeys chan string
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -26,8 +32,8 @@ func main() {
 		panic(err)
 	}
 
-	events := make(chan *nostr.Event, config.EventsCapacity)
-	pubkeys := make(chan string, config.PubkeysCapacity)
+	events = make(chan *nostr.Event, config.EventsCapacity)
+	pubkeys = make(chan string, config.PubkeysCapacity)
 
 	db := redb.New(&redis.Options{Addr: config.RedisAddress})
 	count, err := db.NodeCount(ctx)
@@ -59,13 +65,6 @@ func main() {
 
 		log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 	}
-
-	_ = events
-
-	// eventStore, err := eventstore.New(config.SQLiteURL)
-	// if err != nil {
-	// 	panic("failed to connect to the sqlite eventstore: " + err.Error())
-	// }
 
 	var wg sync.WaitGroup
 	wg.Add(3)
@@ -106,7 +105,7 @@ func main() {
 		})
 	}()
 
-	log.Println("ready to process events")
+	go printStats(ctx)
 	pipe.Processor(ctx, config.Processor, db, events)
 	wg.Wait()
 }
@@ -119,4 +118,38 @@ func handleSignals(cancel context.CancelFunc) {
 
 	log.Println(" Signal received. Shutting down...")
 	cancel()
+}
+
+func printStats(ctx context.Context) {
+	filename := "stats.log"
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
+	}
+
+	defer file.Close()
+	log := log.New(file, "stats: ", log.LstdFlags)
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			goroutines := runtime.NumGoroutine()
+			memStats := new(runtime.MemStats)
+			runtime.ReadMemStats(memStats)
+
+			log.Println("---------------------------------------")
+			log.Printf("events queue: %d/%d\n", len(events), cap(events))
+			log.Printf("pubkeys queue: %d/%d\n", len(pubkeys), cap(pubkeys))
+			log.Printf("walks tracker: %v\n", pipe.WalksTracker.Load())
+			log.Printf("goroutines: %d\n", goroutines)
+			log.Printf("memory usage: %.2f MB\n", float64(memStats.Alloc)/(1024*1024))
+			log.Println("---------------------------------------")
+		}
+	}
 }

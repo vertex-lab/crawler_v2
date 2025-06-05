@@ -20,7 +20,7 @@ var (
 
 // flushAll deletes all the keys of all existing databases. This command never fails.
 func (r RedisDB) flushAll() {
-	r.client.FlushAll(context.Background())
+	r.Client.FlushAll(context.Background())
 }
 
 func node[ID string | graph.ID](id ID) string {

@@ -432,11 +432,11 @@ func TestInterfaces(t *testing.T) {
 // ------------------------------------- HELPERS -------------------------------
 
 func Empty() (RedisDB, error) {
-	return RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}, nil
+	return RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}, nil
 }
 
 func OneNode() (RedisDB, error) {
-	db := RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}
+	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	if _, err := db.AddNode(ctx, "0"); err != nil {
 		db.flushAll()
 		return RedisDB{}, err
@@ -446,7 +446,7 @@ func OneNode() (RedisDB, error) {
 }
 
 func Simple() (RedisDB, error) {
-	db := RedisDB{client: redis.NewClient(&redis.Options{Addr: testAddress})}
+	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	for _, pk := range []string{"0", "1", "2"} {
 		if _, err := db.AddNode(ctx, pk); err != nil {
 			db.flushAll()
@@ -455,12 +455,12 @@ func Simple() (RedisDB, error) {
 	}
 
 	// 0 ---> 1
-	if err := db.client.SAdd(ctx, follows("0"), "1").Err(); err != nil {
+	if err := db.Client.SAdd(ctx, follows("0"), "1").Err(); err != nil {
 		db.flushAll()
 		return RedisDB{}, err
 	}
 
-	if err := db.client.SAdd(ctx, followers("1"), "0").Err(); err != nil {
+	if err := db.Client.SAdd(ctx, followers("1"), "0").Err(); err != nil {
 		db.flushAll()
 		return RedisDB{}, err
 	}

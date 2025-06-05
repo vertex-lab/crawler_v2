@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// walksTracker tracks the number of walks that have been updated by [Processor].
+// WalksTracker tracks the number of walks that have been updated by [Processor].
 // It's used to wake-up the [Arbiter], which performs work and then resets it to 0.
-var walksTracker atomic.Int32
+var WalksTracker atomic.Int32
 
 type ArbiterConfig struct {
 	Activation float64
@@ -51,7 +51,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 	ticker := time.NewTicker(config.PingWait)
 	defer ticker.Stop()
 
-	walksTracker.Add(1000_000_000) // trigger a scan at startup
+	WalksTracker.Add(1000_000_000) // trigger a scan at startup
 
 	for {
 		select {
@@ -66,17 +66,16 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 				continue
 			}
 
-			changed := walksTracker.Load()
+			changed := WalksTracker.Load()
 			changeRatio := float64(changed) / float64(total)
 
 			if changeRatio > config.Activation {
 				promoted, demoted, err := arbiterScan(ctx, config, db, send)
 				if err != nil {
 					log.Printf("Arbiter: %v", err)
-					continue
 				}
 
-				walksTracker.Store(0) // resets tracker
+				WalksTracker.Store(0) // resets tracker
 				log.Printf("Arbiter: promoted %d, demoted %d", promoted, demoted)
 			}
 		}
@@ -85,7 +84,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 
 // ArbiterScan performs one entire database scan, promoting or demoting nodes based on their pagerank.
 func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send func(pk string) error) (promoted, demoted int, err error) {
-	maxTime := 60 * time.Second
+	maxTime := 2 * time.Minute
 	ctx, cancel := context.WithTimeout(ctx, maxTime)
 	defer cancel()
 
