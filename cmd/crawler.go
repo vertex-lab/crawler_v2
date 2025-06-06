@@ -111,15 +111,15 @@ func handleSignals(cancel context.CancelFunc) {
 	cancel()
 }
 
-// enqueue things into the specified channel or log if full
+// enqueue things into the specified channel or return an error if full.
 func enqueue[T any](queue chan T) func(t T) error {
 	return func(t T) error {
 		select {
 		case queue <- t:
+			return nil
 		default:
-			log.Printf("channel is full, dropping %v", t)
+			return fmt.Errorf("channel is full, dropping %v", t)
 		}
-		return nil
 	}
 }
 
