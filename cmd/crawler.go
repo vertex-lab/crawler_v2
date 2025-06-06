@@ -19,9 +19,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var events chan *nostr.Event
-var pubkeys chan string
-
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -32,8 +29,8 @@ func main() {
 		panic(err)
 	}
 
-	events = make(chan *nostr.Event, config.EventsCapacity)
-	pubkeys = make(chan string, config.PubkeysCapacity)
+	events := make(chan *nostr.Event, config.EventsCapacity)
+	pubkeys := make(chan string, config.PubkeysCapacity)
 
 	db := redb.New(&redis.Options{Addr: config.RedisAddress})
 	count, err := db.NodeCount(ctx)
@@ -89,7 +86,6 @@ func main() {
 		pipe.Processor(ctx, config.Processor, db, events)
 	}()
 
-	go printStats(ctx)
 	wg.Wait()
 }
 
@@ -103,7 +99,7 @@ func handleSignals(cancel context.CancelFunc) {
 	cancel()
 }
 
-// enqueue things into channels
+// enqueue things into the specified channel or log if full
 func enqueue[T any](queue chan T) func(t T) error {
 	return func(t T) error {
 		select {
@@ -115,7 +111,7 @@ func enqueue[T any](queue chan T) func(t T) error {
 	}
 }
 
-func printStats(ctx context.Context) {
+func printStats(ctx context.Context, events chan *nostr.Event, pubkeys chan string) {
 	filename := "stats.log"
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
