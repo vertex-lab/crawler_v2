@@ -132,7 +132,10 @@ func Archiver(
 				logEvent(event, err)
 			}
 
-			EventTracker.Add(1)
+			processed := int(EventTracker.Add(1))
+			if processed%config.PrintEvery == 0 {
+				log.Printf("Engine: processed %d events", processed)
+			}
 		}
 	}
 }
@@ -180,7 +183,10 @@ func GraphUpdater(
 				logEvent(event, err)
 			}
 
-			EventTracker.Add(1)
+			processed := int(EventTracker.Add(1))
+			if processed%config.PrintEvery == 0 {
+				log.Printf("Engine: processed %d events", processed)
+			}
 		}
 	}
 }
