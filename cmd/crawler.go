@@ -39,7 +39,7 @@ func main() {
 	}
 
 	if count == 0 {
-		log.Println("initialize from empty database")
+		log.Println("initialize from empty database...")
 
 		nodes := make([]graph.ID, len(config.InitPubkeys))
 		for i, pk := range config.InitPubkeys {
