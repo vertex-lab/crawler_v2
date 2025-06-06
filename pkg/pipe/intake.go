@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	relevantKinds = []int{
+	Kinds = []int{
 		//nostr.KindProfileMetadata,
 		nostr.KindFollowList,
 	}
@@ -98,7 +98,7 @@ func (b *buffer) Contains(ID string) bool {
 	return slices.Contains(b.IDs, ID)
 }
 
-// Firehose connects to a list of relays and pulls [relevantKinds] events that are newer than [FirehoseConfig.Since].
+// Firehose connects to a list of relays and pulls [Kinds] events that are newer than [FirehoseConfig.Since].
 // It discards events from unknown pubkeys as an anti-spam mechanism.
 func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, send func(*nostr.Event) error) {
 	defer log.Println("Firehose: shutting down...")
@@ -107,7 +107,7 @@ func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, s
 	defer shutdown(pool)
 
 	filter := nostr.Filter{
-		Kinds: relevantKinds,
+		Kinds: Kinds,
 		Since: config.Since(),
 	}
 
@@ -218,7 +218,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 	}
 }
 
-// fetch queries the [relevantKinds] of the specified pubkeys.
+// fetch queries the [Kinds] of the specified pubkeys.
 func fetch(ctx context.Context, pool *nostr.SimplePool, relays, pubkeys []string) ([]*nostr.Event, error) {
 	if len(pubkeys) == 0 {
 		return nil, nil
@@ -228,7 +228,7 @@ func fetch(ctx context.Context, pool *nostr.SimplePool, relays, pubkeys []string
 	defer cancel()
 
 	filter := nostr.Filter{
-		Kinds:   relevantKinds,
+		Kinds:   Kinds,
 		Authors: pubkeys,
 	}
 

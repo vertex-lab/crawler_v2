@@ -37,7 +37,7 @@ func TestFetch(t *testing.T) {
 		t.Fatalf("expected error nil, got %v", err)
 	}
 
-	expected := len(pubkeys) * len(relevantKinds)
+	expected := len(pubkeys) * len(Kinds)
 	if len(events) != expected {
 		t.Fatalf("expected %d events, got %d", expected, len(events))
 	}

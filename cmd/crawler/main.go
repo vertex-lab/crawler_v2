@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github/pippellia-btc/crawler/pkg/config"
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/pipe"
 	"github/pippellia-btc/crawler/pkg/redb"
@@ -25,7 +26,7 @@ func main() {
 	defer cancel()
 	go handleSignals(cancel)
 
-	config, err := LoadConfig()
+	config, err := config.Load()
 	if err != nil {
 		panic(err)
 	}
@@ -45,9 +46,13 @@ func main() {
 	}
 
 	if count == 0 {
-		log.Println("initialize from empty database...")
+		if len(config.InitPubkeys) == 0 {
+			panic("init pubkeys are empty")
+		}
 
+		log.Println("initialize from empty database...")
 		nodes := make([]graph.ID, len(config.InitPubkeys))
+
 		for i, pk := range config.InitPubkeys {
 			nodes[i], err = db.AddNode(ctx, pk)
 			if err != nil {

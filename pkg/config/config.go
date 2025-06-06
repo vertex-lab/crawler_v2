@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"fmt"
@@ -50,8 +50,8 @@ type Config struct {
 	Engine   pipe.EngineConfig
 }
 
-// NewConfig returns a config with default parameters
-func NewConfig() *Config {
+// New returns a config with default parameters
+func New() *Config {
 	return &Config{
 		SystemConfig: NewSystemConfig(),
 		Firehose:     pipe.NewFirehoseConfig(),
@@ -69,9 +69,9 @@ func (c *Config) Print() {
 	c.Engine.Print()
 }
 
-// LoadConfig reads the enviroment variables and parses them into a [Config] struct
-func LoadConfig() (*Config, error) {
-	var config = NewConfig()
+// Load reads the enviroment variables and parses them into a [Config] struct
+func Load() (*Config, error) {
+	var config = New()
 	var err error
 
 	for _, item := range os.Environ() {
