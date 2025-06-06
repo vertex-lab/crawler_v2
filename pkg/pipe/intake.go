@@ -12,7 +12,7 @@ import (
 
 var (
 	Kinds = []int{
-		//nostr.KindProfileMetadata,
+		nostr.KindProfileMetadata,
 		nostr.KindFollowList,
 	}
 
