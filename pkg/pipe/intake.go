@@ -101,9 +101,10 @@ func (b *buffer) Contains(ID string) bool {
 // Firehose connects to a list of relays and pulls [relevantKinds] events that are newer than [FirehoseConfig.Since].
 // It discards events from unknown pubkeys as an anti-spam mechanism.
 func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, send func(*nostr.Event) error) {
-	pool := nostr.NewSimplePool(ctx)
-	defer close(pool)
 	defer log.Println("Firehose: shutting down...")
+
+	pool := nostr.NewSimplePool(ctx)
+	defer shutdown(pool)
 
 	filter := nostr.Filter{
 		Kinds: relevantKinds,
@@ -160,19 +161,24 @@ func (c FetcherConfig) Print() {
 // - when the batch is bigger than config.Batch
 // - after config.Interval since the last query.
 func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, send func(*nostr.Event) error) {
+	defer log.Println("Fetcher: shutting down...")
+
 	batch := make([]string, 0, config.Batch)
 	timer := time.After(config.Interval)
 
 	pool := nostr.NewSimplePool(ctx)
-	defer close(pool)
+	defer shutdown(pool)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Fetcher: shutting down...")
 			return
 
-		case pubkey := <-pubkeys:
+		case pubkey, ok := <-pubkeys:
+			if !ok {
+				return
+			}
+
 			batch = append(batch, pubkey)
 			if len(batch) < config.Batch {
 				continue
@@ -244,8 +250,8 @@ func fetch(ctx context.Context, pool *nostr.SimplePool, relays, pubkeys []string
 	return events, nil
 }
 
-// Close iterates over the relays in the pool and closes all connections.
-func close(pool *nostr.SimplePool) {
+// Shutdown iterates over the relays in the pool and closes all connections.
+func shutdown(pool *nostr.SimplePool) {
 	pool.Relays.Range(func(_ string, relay *nostr.Relay) bool {
 		relay.Close()
 		return true

@@ -447,9 +447,13 @@ func (db RedisDB) Pubkeys(ctx context.Context, nodes ...graph.ID) ([]string, err
 
 type MissingHandler func(ctx context.Context, db RedisDB, pubkey string) (graph.ID, error)
 
-func Ignore(context.Context, RedisDB, string) (graph.ID, error)   { return "", nil }
+// Ignore pubkeys that are not found
+func Ignore(context.Context, RedisDB, string) (graph.ID, error) { return "", nil }
+
+// Return a sentinel value ("-1") as the node ID of pubkeys not found
 func Sentinel(context.Context, RedisDB, string) (graph.ID, error) { return "-1", nil }
 
+// AddValid pubkeys to the database if they were not already present
 func AddValid(ctx context.Context, db RedisDB, pubkey string) (graph.ID, error) {
 	if !nostr.IsValidPublicKey(pubkey) {
 		return "", nil

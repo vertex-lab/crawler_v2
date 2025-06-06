@@ -44,10 +44,10 @@ func (c SystemConfig) Print() {
 // The configuration parameters for the system and the main processes
 type Config struct {
 	SystemConfig
-	Firehose  pipe.FirehoseConfig
-	Fetcher   pipe.FetcherConfig
-	Arbiter   pipe.ArbiterConfig
-	Processor pipe.ProcessorConfig
+	Firehose pipe.FirehoseConfig
+	Fetcher  pipe.FetcherConfig
+	Arbiter  pipe.ArbiterConfig
+	Engine   pipe.EngineConfig
 }
 
 // NewConfig returns a config with default parameters
@@ -57,7 +57,7 @@ func NewConfig() *Config {
 		Firehose:     pipe.NewFirehoseConfig(),
 		Fetcher:      pipe.NewFetcherConfig(),
 		Arbiter:      pipe.NewArbiterConfig(),
-		Processor:    pipe.NewProcessorConfig(),
+		Engine:       pipe.NewEngineConfig(),
 	}
 }
 
@@ -66,7 +66,7 @@ func (c *Config) Print() {
 	c.Firehose.Print()
 	c.Fetcher.Print()
 	c.Arbiter.Print()
-	c.Processor.Print()
+	c.Engine.Print()
 }
 
 // LoadConfig reads the enviroment variables and parses them into a [Config] struct
@@ -174,14 +174,26 @@ func LoadConfig() (*Config, error) {
 			}
 			config.Arbiter.PromotionWait = time.Duration(wait) * time.Second
 
-		case "PROCESSOR_CACHE_CAPACITY":
-			config.Processor.CacheCapacity, err = strconv.Atoi(val)
+		case "ENGINE_PRINT_EVERY":
+			config.Engine.PrintEvery, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
 
-		case "PROCESSOR_PRINT_EVERY":
-			config.Processor.PrintEvery, err = strconv.Atoi(val)
+		case "ENGINE_UPDATER_CAPACITY":
+			config.Engine.UpdaterCapacity, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
+			}
+
+		case "ENGINE_CACHE_CAPACITY":
+			config.Engine.CacheCapacity, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
+			}
+
+		case "ENGINE_ARCHIVE_CAPACITY":
+			config.Engine.ArchiverCapacity, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}

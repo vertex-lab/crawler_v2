@@ -17,6 +17,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
+	"github.com/vertex-lab/relay/pkg/eventstore"
 )
 
 func main() {
@@ -31,6 +32,11 @@ func main() {
 
 	events := make(chan *nostr.Event, config.EventsCapacity)
 	pubkeys := make(chan string, config.PubkeysCapacity)
+
+	store, err := eventstore.New(config.SQLiteURL)
+	if err != nil {
+		panic(err)
+	}
 
 	db := redb.New(&redis.Options{Addr: config.RedisAddress})
 	count, err := db.NodeCount(ctx)
@@ -63,30 +69,36 @@ func main() {
 		log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(4)
+	var producers sync.WaitGroup
+	var consumers sync.WaitGroup
 
+	producers.Add(3)
 	go func() {
-		defer wg.Done()
+		defer producers.Done()
 		pipe.Firehose(ctx, config.Firehose, db, enqueue(events))
 	}()
 
 	go func() {
-		defer wg.Done()
+		defer producers.Done()
 		pipe.Fetcher(ctx, config.Fetcher, pubkeys, enqueue(events))
 	}()
 
 	go func() {
-		defer wg.Done()
+		defer producers.Done()
 		pipe.Arbiter(ctx, config.Arbiter, db, enqueue(pubkeys))
+		close(pubkeys) // Arbiter is the only pubkey sender
 	}()
 
+	consumers.Add(1)
 	go func() {
-		defer wg.Done()
-		pipe.Processor(ctx, config.Processor, db, events)
+		defer consumers.Done()
+		pipe.Engine(ctx, config.Engine, store, db, events)
 	}()
 
-	wg.Wait()
+	producers.Wait()
+	close(events)
+
+	consumers.Wait()
 }
 
 // handleSignals listens for OS signals and triggers context cancellation.
