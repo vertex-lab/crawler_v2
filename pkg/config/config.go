@@ -180,8 +180,8 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
 
-		case "ENGINE_UPDATER_CAPACITY":
-			config.Engine.UpdaterCapacity, err = strconv.Atoi(val)
+		case "ENGINE_BUILDER_CAPACITY":
+			config.Engine.BuilderCapacity, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
@@ -192,8 +192,8 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
 
-		case "ENGINE_ARCHIVE_CAPACITY":
-			config.Engine.ArchiverCapacity, err = strconv.Atoi(val)
+		case "ENGINE_ARCHIVERS":
+			config.Engine.Archivers, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}

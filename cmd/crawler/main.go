@@ -47,7 +47,7 @@ func main() {
 
 	if count == 0 {
 		if len(config.InitPubkeys) == 0 {
-			panic("init pubkeys are empty")
+			panic("init pubkeys are empty: impossible to initialize")
 		}
 
 		log.Println("initialize from empty database...")

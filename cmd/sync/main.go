@@ -22,7 +22,7 @@ import (
 )
 
 /*
-This program syncronize the Redis database using the events already stored in the EventStore.
+This program syncronize the Redis database to the events already stored in the event store.
 If Redis and the eventstore are already in sync, run the executable at /cmd/crawler/.
 */
 
@@ -51,11 +51,11 @@ func main() {
 	}
 
 	if count != 0 {
-		panic("refusing to run sync when redis is not empty")
+		panic("refuse to run sync when redis is not empty")
 	}
 
 	if len(config.InitPubkeys) == 0 {
-		panic("init pubkeys are empty")
+		panic("init pubkeys are empty: impossible to initialize")
 	}
 
 	log.Println("initialize from empty database...")
@@ -108,7 +108,7 @@ func main() {
 	consumers.Add(1)
 	go func() {
 		defer consumers.Done()
-		pipe.GraphUpdater(ctx, config.Engine, store, db, events)
+		pipe.GraphBuilder(ctx, config.Engine, store, db, events)
 	}()
 
 	producers.Wait()
