@@ -85,36 +85,29 @@ func main() {
 		nostr.KindFollowList, // no need to sync other event kinds
 	}
 
-	var producers sync.WaitGroup
-	var consumers sync.WaitGroup
+	go printStats(ctx, events, pubkeys)
 
-	producers.Add(3)
+	var wg sync.WaitGroup
+	wg.Add(3)
+
 	go func() {
-		defer producers.Done()
-		pipe.Firehose(ctx, config.Firehose, db, enqueue(events))
+		defer wg.Done()
+		pipe.FetcherDB(ctx, config.Fetcher, store, pubkeys, enqueue(events))
+		close(events) // FetcherDB is the only event producer
 	}()
 
 	go func() {
-		defer producers.Done()
-		pipe.Fetcher(ctx, config.Fetcher, pubkeys, enqueue(events)) // TODO: fetch from the event store
-	}()
-
-	go func() {
-		defer producers.Done()
+		defer wg.Done()
 		pipe.Arbiter(ctx, config.Arbiter, db, enqueue(pubkeys))
-		close(pubkeys) // Arbiter is the only pubkey sender
+		close(pubkeys) // Arbiter is the only pubkey producer
 	}()
 
-	consumers.Add(1)
 	go func() {
-		defer consumers.Done()
-		pipe.GraphBuilder(ctx, config.Engine, store, db, events)
+		defer wg.Done()
+		pipe.GraphBuilder(ctx, config.Engine, db, events)
 	}()
 
-	producers.Wait()
-	close(events)
-
-	consumers.Wait()
+	wg.Wait()
 }
 
 // handleSignals listens for OS signals and triggers context cancellation.

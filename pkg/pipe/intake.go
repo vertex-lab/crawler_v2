@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/vertex-lab/relay/pkg/eventstore"
 )
 
 var (
@@ -157,7 +158,7 @@ func (c FetcherConfig) Print() {
 	fmt.Printf("  Interval: %v\n", c.Interval)
 }
 
-// Fetcher extracts pubkeys from the channel and queries for their events:
+// Fetcher extracts pubkeys from the channel and queries relays for their events:
 // - when the batch is bigger than config.Batch
 // - after config.Interval since the last query.
 func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, send func(*nostr.Event) error) {
@@ -248,6 +249,72 @@ func fetch(ctx context.Context, pool *nostr.SimplePool, relays, pubkeys []string
 	}
 
 	return events, nil
+}
+
+// Fetcher extracts pubkeys from the channel and queries the store for their events:
+// - when the batch is bigger than config.Batch
+// - after config.Interval since the last query.
+func FetcherDB(
+	ctx context.Context,
+	config FetcherConfig,
+	store *eventstore.Store,
+	pubkeys <-chan string,
+	send func(*nostr.Event) error) {
+
+	defer log.Println("FetcherDB: shutting down...")
+
+	batch := make([]string, 0, config.Batch)
+	timer := time.After(config.Interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case pubkey, ok := <-pubkeys:
+			if !ok {
+				return
+			}
+
+			batch = append(batch, pubkey)
+			if len(batch) < config.Batch {
+				continue
+			}
+
+			events, err := store.Query(ctx, &nostr.Filter{Kinds: Kinds, Authors: batch})
+			if err != nil {
+				log.Printf("FetcherDB: %v", err)
+			}
+
+			for _, event := range events {
+				if err := send(&event); err != nil {
+					log.Printf("FetcherDB: %v", err)
+				}
+			}
+
+			batch = make([]string, 0, config.Batch)
+			timer = time.After(config.Interval)
+
+		case <-timer:
+			if len(batch) == 0 {
+				continue
+			}
+
+			events, err := store.Query(ctx, &nostr.Filter{Kinds: Kinds, Authors: batch})
+			if err != nil {
+				log.Printf("FetcherDB: %v", err)
+			}
+
+			for _, event := range events {
+				if err := send(&event); err != nil {
+					log.Printf("FetcherDB: %v", err)
+				}
+			}
+
+			batch = make([]string, 0, config.Batch)
+			timer = time.After(config.Interval)
+		}
+	}
 }
 
 // Shutdown iterates over the relays in the pool and closes all connections.

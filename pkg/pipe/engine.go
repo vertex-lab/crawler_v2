@@ -54,7 +54,7 @@ func Engine(
 	graphEvents := make(chan *nostr.Event, config.BuilderCapacity)
 	defer close(graphEvents)
 
-	go GraphBuilder(ctx, config, store, db, graphEvents)
+	go GraphBuilder(ctx, config, db, graphEvents)
 	log.Println("Engine: ready to process events")
 
 	Archiver(ctx, config, store, events, func(e *nostr.Event) error {
@@ -144,7 +144,6 @@ func archive(
 func GraphBuilder(
 	ctx context.Context,
 	config EngineConfig,
-	store *eventstore.Store,
 	db redb.RedisDB,
 	events chan *nostr.Event) {
 

@@ -74,6 +74,8 @@ func main() {
 		log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 	}
 
+	go printStats(ctx, events, pubkeys)
+
 	var producers sync.WaitGroup
 	var consumers sync.WaitGroup
 
@@ -91,7 +93,7 @@ func main() {
 	go func() {
 		defer producers.Done()
 		pipe.Arbiter(ctx, config.Arbiter, db, enqueue(pubkeys))
-		close(pubkeys) // Arbiter is the only pubkey sender
+		close(pubkeys) // Arbiter is the only pubkey producer
 	}()
 
 	consumers.Add(1)
