@@ -127,7 +127,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 			case graph.StatusActive:
 				// active --> inactive
 				if ranks[i] < demotionThreshold {
-					if err := demote(db, node.ID); err != nil {
+					if err := Demote(db, node.ID); err != nil {
 						return promoted, demoted, err
 					}
 
@@ -142,7 +142,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 				}
 
 				if ranks[i] >= promotionThreshold && time.Since(added) > config.PromotionWait {
-					if err := promote(db, node.ID); err != nil {
+					if err := Promote(db, node.ID); err != nil {
 						return promoted, demoted, err
 					}
 
@@ -172,8 +172,8 @@ func minPagerank(ctx context.Context, db redb.RedisDB) (float64, error) {
 	return float64(walks.N) / float64(total), nil
 }
 
-// demote removes all walks that start from the node and changes its status to inactive.
-func demote(db redb.RedisDB, node graph.ID) error {
+// Demote removes all walks that start from the node and changes its status to inactive.
+func Demote(db redb.RedisDB, node graph.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -194,8 +194,8 @@ func demote(db redb.RedisDB, node graph.ID) error {
 	return db.Demote(ctx, node)
 }
 
-// promote generates random walks for the node and changes its status to active.
-func promote(db redb.RedisDB, node graph.ID) error {
+// Promote generates random walks for the node and changes its status to active.
+func Promote(db redb.RedisDB, node graph.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
