@@ -8,7 +8,10 @@ import (
 	"github/pippellia-btc/crawler/pkg/redb"
 	"github/pippellia-btc/crawler/pkg/walks"
 	"log"
+	"os"
+	"os/signal"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -209,4 +212,14 @@ func Promote(db redb.RedisDB, node graph.ID) error {
 	}
 
 	return db.Promote(ctx, node)
+}
+
+// HandleSignals listens for OS signals and triggers context cancellation.
+func HandleSignals(cancel context.CancelFunc) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	<-signals
+
+	log.Println("signal received. shutting down...")
+	cancel()
 }

@@ -9,10 +9,8 @@ import (
 	"github/pippellia-btc/crawler/pkg/redb"
 	"log"
 	"os"
-	"os/signal"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -23,7 +21,7 @@ import (
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go handleSignals(cancel)
+	go pipe.HandleSignals(cancel)
 
 	config, err := config.Load()
 	if err != nil {
@@ -100,16 +98,6 @@ func main() {
 	close(events)
 
 	consumers.Wait()
-}
-
-// handleSignals listens for OS signals and triggers context cancellation.
-func handleSignals(cancel context.CancelFunc) {
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-	<-signals
-
-	log.Println(" Signal received. Shutting down...")
-	cancel()
 }
 
 // enqueue things into the specified channel or return an error if full.
