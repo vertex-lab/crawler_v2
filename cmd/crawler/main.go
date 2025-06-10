@@ -7,7 +7,6 @@ import (
 	"github/pippellia-btc/crawler/pkg/graph"
 	"github/pippellia-btc/crawler/pkg/pipe"
 	"github/pippellia-btc/crawler/pkg/redb"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"log"
 	"os"
 	"os/signal"
@@ -49,10 +48,9 @@ func main() {
 		if len(config.InitPubkeys) == 0 {
 			panic("init pubkeys are empty: impossible to initialize")
 		}
-
 		log.Println("initialize from empty database...")
-		nodes := make([]graph.ID, len(config.InitPubkeys))
 
+		nodes := make([]graph.ID, len(config.InitPubkeys))
 		for i, pk := range config.InitPubkeys {
 			nodes[i], err = db.AddNode(ctx, pk)
 			if err != nil {
@@ -62,15 +60,11 @@ func main() {
 			pubkeys <- pk // add to queue
 		}
 
-		walks, err := walks.Generate(ctx, db, nodes...)
-		if err != nil {
-			panic(err)
+		for _, node := range nodes {
+			if err := pipe.Promote(db, node); err != nil {
+				panic(err)
+			}
 		}
-
-		if err := db.AddWalks(ctx, walks...); err != nil {
-			panic(err)
-		}
-
 		log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 	}
 
