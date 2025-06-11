@@ -8,7 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/redis/go-redis/v9 v9.8.0
-	github.com/vertex-lab/relay v0.4.6
+	github.com/vertex-lab/relay v0.4.7
 )
 
 require (

@@ -82,6 +82,8 @@ github.com/vertex-lab/relay v0.4.5 h1:6elykMvZFV+y/JYNhaNo3+pxbK66QnrmAIv3/3CN+V
 github.com/vertex-lab/relay v0.4.5/go.mod h1:K3Utw2y0FhhDigT86A2gc/ZqK6MrF06mw6p0CihD4I4=
 github.com/vertex-lab/relay v0.4.6 h1:wNMr440tcIqcBZulIrrPKkaELI8NG3sPwsm3huq5aSo=
 github.com/vertex-lab/relay v0.4.6/go.mod h1:K3Utw2y0FhhDigT86A2gc/ZqK6MrF06mw6p0CihD4I4=
+github.com/vertex-lab/relay v0.4.7 h1:VsOmkJNfMI9iz+UonD1StHemOvgt/33COgqpJA1COEk=
+github.com/vertex-lab/relay v0.4.7/go.mod h1:K3Utw2y0FhhDigT86A2gc/ZqK6MrF06mw6p0CihD4I4=
 golang.org/x/arch v0.15.0 h1:QtOrQd0bTUnhNVNndMpLHNWrDmYzZ2KDqSrEymqInZw=
 golang.org/x/arch v0.15.0/go.mod h1:JmwW7aLIoRUKgaTzhkiEFxvcEiQGyOg9BMonBJUS7EE=
 golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 h1:nDVHiLt8aIbd/VzvPWN6kSOPE7+F/fNFDSXLVYkE/Iw=
