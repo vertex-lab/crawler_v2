@@ -18,6 +18,12 @@ import (
 	"github.com/vertex-lab/relay/pkg/eventstore"
 )
 
+/*
+This programs assumes syncronization between Redis and the event store, meaning
+that the graph in Redis reflects these events.
+If that is not the case, go run /cmd/sync/ to syncronize Redis with the event store.
+*/
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

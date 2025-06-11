@@ -1,3 +1,4 @@
+// The config package loads and validates the variables in the enviroment into a [Config]
 package config
 
 import (

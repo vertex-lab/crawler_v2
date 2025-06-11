@@ -1,3 +1,4 @@
+// The pipe package defines high-level pipeline functions (e.g. [Firehose], [Engine])
 package pipe
 
 import (

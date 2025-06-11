@@ -20,7 +20,7 @@ import (
 
 /*
 This program syncronize the Redis database to the events already stored in the event store.
-If Redis and the eventstore are already in sync, run the executable at /cmd/crawler/.
+If Redis and the eventstore are already in sync, go run /cmd/crawler/.
 */
 
 func main() {
