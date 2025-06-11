@@ -24,7 +24,7 @@ func TestWalks(t *testing.T) {
 	fmt.Println("Testing the walks consistency")
 	fmt.Printf("-----------------------------\n\n")
 
-	db := redb.New(&redis.Options{Addr: "localhost:6380"})
+	db := redb.New(&redis.Options{Addr: "localhost:6379"})
 
 	var iteration int
 	var limit int = 10000
@@ -80,7 +80,7 @@ func TestPagerank(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the pagerank distribution")
 
-	db := redb.New(&redis.Options{Addr: "localhost:6380"})
+	db := redb.New(&redis.Options{Addr: "localhost:6379"})
 	nodes, err := db.AllNodes(ctx)
 	if err != nil {
 		t.Fatal(err)
