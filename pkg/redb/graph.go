@@ -319,7 +319,7 @@ func (db RedisDB) counts(ctx context.Context, key func(graph.ID) string, nodes .
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return nil, fmt.Errorf("failed to count the elements of %d nodes: %w", len(nodes), err)
+		return nil, fmt.Errorf("failed to count the elements of %d %s of nodes: %w", len(nodes), key(""), err)
 	}
 
 	counts := make([]int, len(nodes))
