@@ -2,11 +2,12 @@ package redb
 
 import (
 	"errors"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 
 	"github.com/redis/go-redis/v9"
 )

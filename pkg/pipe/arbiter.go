@@ -3,16 +3,17 @@ package pipe
 import (
 	"context"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/pagerank"
-	"github/pippellia-btc/crawler/pkg/redb"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"log"
 	"os"
 	"os/signal"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
 // WalksTracker tracks the number of walks that have been updated by [Processor].

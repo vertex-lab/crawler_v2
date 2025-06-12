@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
 var (

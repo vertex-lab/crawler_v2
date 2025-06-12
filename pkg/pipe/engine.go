@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/redb"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"log"
 	"slices"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/relay/pkg/eventstore"

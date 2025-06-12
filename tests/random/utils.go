@@ -2,10 +2,11 @@ package random
 
 import (
 	"context"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"math"
 	"strconv"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
 type WalkStore struct {

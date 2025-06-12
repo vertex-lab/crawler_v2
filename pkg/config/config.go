@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github/pippellia-btc/crawler/pkg/pipe"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 
 	_ "github.com/joho/godotenv/autoload" // autoloading .env
 	"github.com/nbd-wtf/go-nostr"

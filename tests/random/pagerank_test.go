@@ -2,10 +2,11 @@ package random
 
 import (
 	"context"
-	"github/pippellia-btc/crawler/pkg/pagerank"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"math/rand/v2"
 	"testing"
+
+	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
 func TestPagerankStatic(t *testing.T) {

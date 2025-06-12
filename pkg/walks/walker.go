@@ -4,10 +4,11 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
 	"log"
 	"os"
 	"strconv"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
 )
 
 type Walker interface {

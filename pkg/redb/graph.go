@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"

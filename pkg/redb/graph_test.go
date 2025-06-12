@@ -3,12 +3,13 @@ package redb
 import (
 	"context"
 	"errors"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/pagerank"
-	"github/pippellia-btc/crawler/pkg/walks"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"

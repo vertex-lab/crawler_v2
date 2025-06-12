@@ -3,13 +3,14 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/pagerank"
-	"github/pippellia-btc/crawler/pkg/redb"
-	"github/pippellia-btc/crawler/pkg/walks"
-	test "github/pippellia-btc/crawler/tests/random"
 	"math"
 	"testing"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/walks"
+	test "github.com/vertex-lab/crawler_v2/tests/random"
 
 	"github.com/redis/go-redis/v9"
 )

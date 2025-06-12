@@ -5,9 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
 	"math/rand/v2"
 	"slices"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
 )
 
 var (

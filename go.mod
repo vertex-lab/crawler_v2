@@ -1,4 +1,4 @@
-module github/pippellia-btc/crawler
+module github.com/vertex-lab/crawler_v2
 
 go 1.24.1
 

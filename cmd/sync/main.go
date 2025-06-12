@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/config"
-	"github/pippellia-btc/crawler/pkg/graph"
-	"github/pippellia-btc/crawler/pkg/pipe"
-	"github/pippellia-btc/crawler/pkg/redb"
 	"log"
 	"os"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/vertex-lab/crawler_v2/pkg/config"
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"

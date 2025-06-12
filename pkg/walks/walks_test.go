@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github/pippellia-btc/crawler/pkg/graph"
 	"math"
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
 )
 
 func TestGenerate(t *testing.T) {
