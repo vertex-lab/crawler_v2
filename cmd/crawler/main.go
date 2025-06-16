@@ -73,7 +73,9 @@ func main() {
 		log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 	}
 
-	go printStats(ctx, events, pubkeys)
+	if config.PrintStats {
+		go printStats(ctx, events, pubkeys)
+	}
 
 	var producers sync.WaitGroup
 	var consumers sync.WaitGroup

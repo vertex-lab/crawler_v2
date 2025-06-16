@@ -78,7 +78,9 @@ func main() {
 		nostr.KindFollowList, // no need to sync other event kinds
 	}
 
-	go printStats(ctx, events, pubkeys)
+	if config.PrintStats {
+		go printStats(ctx, events, pubkeys)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(3)
