@@ -22,6 +22,7 @@ type SystemConfig struct {
 	PubkeysCapacity int
 
 	InitPubkeys []string // only used during initialization
+	PrintStats  bool
 }
 
 func NewSystemConfig() SystemConfig {
@@ -40,6 +41,7 @@ func (c SystemConfig) Print() {
 	fmt.Printf("  EventsCapacity: %d\n", c.EventsCapacity)
 	fmt.Printf("  PubkeysCapacity: %d\n", c.PubkeysCapacity)
 	fmt.Printf("  InitPubkeys: %v\n", c.InitPubkeys)
+	fmt.Printf("  PrintStats: %v\n", c.PrintStats)
 }
 
 // The configuration parameters for the system and the main processes
@@ -107,6 +109,12 @@ func Load() (*Config, error) {
 			}
 
 			config.InitPubkeys = pubkeys
+
+		case "PRINT_STATS":
+			config.PrintStats, err = strconv.ParseBool(val)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
+			}
 
 		case "FIREHOSE_OFFSET":
 			offset, err := strconv.Atoi(val)
