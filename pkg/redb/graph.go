@@ -115,6 +115,9 @@ func (db RedisDB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error
 func (db RedisDB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, error) {
 	ID, err := db.Client.HGet(ctx, KeyKeyIndex, pubkey).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			err = graph.ErrNodeNotFound
+		}
 		return nil, fmt.Errorf("failed to fetch ID of node with pubkey %s: %w", pubkey, err)
 	}
 
