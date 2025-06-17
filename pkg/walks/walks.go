@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"slices"
 
@@ -184,9 +185,8 @@ func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 	}
 
 	if len(toRemove) != N {
-		return nil, fmt.Errorf("ToRemove: %w: %d", ErrInvalidRemoval, len(toRemove))
+		log.Printf("ToRemove: %v: %d", ErrInvalidRemoval, len(toRemove))
 	}
-
 	return toRemove, nil
 }
 

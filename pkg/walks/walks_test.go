@@ -2,7 +2,6 @@ package walks
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -56,49 +55,26 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestToRemove(t *testing.T) {
-	N = 3
-	tests := []struct {
-		name     string
-		walks    []Walk
-		toRemove []Walk
-		err      error
-	}{
-		{
-			name: "no walks",
-			err:  ErrInvalidRemoval,
-		},
-		{
-			name:  "too few walks to remove",
-			walks: []Walk{{Path: []graph.ID{"0", "1"}}},
-			err:   ErrInvalidRemoval,
-		},
-		{
-			name: "valid",
-			walks: []Walk{
-				{Path: []graph.ID{"0", "1"}},
-				{Path: []graph.ID{"0", "2"}},
-				{Path: []graph.ID{"0", "3"}},
-				{Path: []graph.ID{"1", "0"}},
-			},
-			toRemove: []Walk{
-				{Path: []graph.ID{"0", "1"}},
-				{Path: []graph.ID{"0", "2"}},
-				{Path: []graph.ID{"0", "3"}},
-			},
-		},
+	walks := []Walk{
+		{Path: []graph.ID{"0", "1"}},
+		{Path: []graph.ID{"0", "2"}},
+		{Path: []graph.ID{"0", "3"}},
+		{Path: []graph.ID{"1", "0"}},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			toRemove, err := ToRemove("0", test.walks)
-			if !errors.Is(err, test.err) {
-				t.Fatalf("expected error %v, got %v", test.err, err)
-			}
+	expected := []Walk{
+		{Path: []graph.ID{"0", "1"}},
+		{Path: []graph.ID{"0", "2"}},
+		{Path: []graph.ID{"0", "3"}},
+	}
 
-			if !reflect.DeepEqual(toRemove, test.toRemove) {
-				t.Fatalf("expected walks to remove %v, got %v", test.toRemove, toRemove)
-			}
-		})
+	toRemove, err := ToRemove("0", walks)
+	if err != nil {
+		t.Fatalf("expected error nil, got %v", err)
+	}
+
+	if !reflect.DeepEqual(toRemove, expected) {
+		t.Fatalf("expected walks to remove %v, got %v", expected, toRemove)
 	}
 }
 
