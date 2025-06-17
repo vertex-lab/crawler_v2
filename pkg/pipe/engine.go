@@ -113,7 +113,7 @@ func Archiver(
 				}
 			}()
 
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				log.Printf("Archiver: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, err)
 			}
 
@@ -170,7 +170,7 @@ func GraphBuilder(
 				return cache.Update(opctx, delta)
 			}()
 
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				log.Printf("GraphBuilder: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, err)
 			}
 

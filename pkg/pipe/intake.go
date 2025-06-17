@@ -186,7 +186,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 			}
 
 			events, err := fetch(ctx, pool, config.Relays, batch)
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				log.Printf("Fetcher: %v", err)
 				continue
 			}
@@ -202,7 +202,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 
 		case <-timer:
 			events, err := fetch(ctx, pool, config.Relays, batch)
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				log.Printf("Fetcher: %v", err)
 				continue
 			}

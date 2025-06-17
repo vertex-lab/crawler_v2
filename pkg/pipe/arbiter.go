@@ -65,7 +65,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 
 		case <-ticker.C:
 			total, err := db.TotalWalks(ctx)
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				log.Printf("Arbiter: %v", err)
 				continue
 			}
@@ -75,7 +75,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 
 			if changeRatio > config.Activation {
 				promoted, demoted, err := arbiterScan(ctx, config, db, send)
-				if err != nil {
+				if err != nil && ctx.Err() == nil {
 					log.Printf("Arbiter: %v", err)
 				}
 
