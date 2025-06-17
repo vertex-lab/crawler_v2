@@ -200,12 +200,6 @@ func Load() (*Config, error) {
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
-
-		case "ENGINE_ARCHIVERS":
-			config.Engine.Archivers, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
 		}
 	}
 
