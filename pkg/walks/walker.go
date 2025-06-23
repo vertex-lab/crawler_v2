@@ -125,8 +125,8 @@ func (c *CachedWalker) logStats() {
 	if c.log != nil {
 		hitRatio := 100 * float64(c.hits) / float64(c.calls)
 		c.log.Printf("calls %d, hits %f%%", c.calls, hitRatio)
-		c.calls, c.hits = 0, 0
 	}
+	c.calls, c.hits = 0, 0
 }
 
 func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, error) {
@@ -136,7 +136,7 @@ func (c *CachedWalker) Follows(ctx context.Context, node graph.ID) ([]graph.ID, 
 	}
 
 	c.calls++
-	if c.calls >= 1000_000 {
+	if c.calls >= 1_000_000 {
 		defer c.logStats()
 	}
 
