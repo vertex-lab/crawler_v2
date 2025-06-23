@@ -2,14 +2,13 @@
 package pipe
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log"
-	"slices"
 	"time"
 
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
@@ -265,28 +264,5 @@ func ParsePubkeys(event *nostr.Event) []string {
 		pubkeys = append(pubkeys, pubkey)
 	}
 
-	return unique(pubkeys)
-}
-
-func logEvent(prefix string, e *nostr.Event, extra any) {
-	log.Printf("%s: event ID %s, kind %d by %s: %v", prefix, e.ID, e.Kind, e.PubKey, extra)
-}
-
-// Unique returns a slice of unique elements of the input slice.
-func unique[E cmp.Ordered](slice []E) []E {
-	if len(slice) == 0 {
-		return nil
-	}
-
-	slices.Sort(slice)
-	unique := make([]E, 0, len(slice))
-	unique = append(unique, slice[0])
-
-	for i := 1; i < len(slice); i++ {
-		if slice[i] != slice[i-1] {
-			unique = append(unique, slice[i])
-		}
-	}
-
-	return unique
+	return slicex.Unique(pubkeys)
 }

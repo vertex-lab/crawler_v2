@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"slices"
 
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 )
 
@@ -143,7 +144,7 @@ func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID
 		return nil, nil
 	}
 
-	node := randomElement(start)
+	node := slicex.RandomElement(start)
 	path := make([]graph.ID, 0, expectedLenght(Alpha))
 	path = append(path, node)
 
@@ -162,7 +163,7 @@ func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID
 			break
 		}
 
-		node = randomElement(follows)
+		node = slicex.RandomElement(follows)
 		if slices.Contains(path, node) {
 			// found a cycle, stop
 			break
@@ -274,11 +275,6 @@ func expectedUpdates(walks []Walk, delta graph.Delta) int {
 	updateP := invalidP + resampleP - invalidP*resampleP
 	expected := float64(len(walks)) * updateP
 	return int(expected + 0.5)
-}
-
-// returns a random element of a slice. It panics if the slice is empty or nil.
-func randomElement[S []E, E any](s S) E {
-	return s[rand.IntN(len(s))]
 }
 
 // Find the position of the first repetition in a slice. If there are no cycles, -1 is returned

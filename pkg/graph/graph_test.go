@@ -15,26 +15,26 @@ func TestNewDelta(t *testing.T) {
 	}{
 		{
 			name:     "nil slices",
-			expected: Delta{Kind: 3, Node: "0"},
+			expected: Delta{Kind: 3, Node: "0", Remove: []ID{}, Keep: []ID{}, Add: []ID{}},
 		},
 		{
 			name:     "empty slices",
-			expected: Delta{Kind: 3, Node: "0"},
+			expected: Delta{Kind: 3, Node: "0", Remove: []ID{}, Keep: []ID{}, Add: []ID{}},
 		},
 		{
 			name:     "only removals",
 			old:      []ID{"0", "1", "2", "19", "111"},
 			new:      []ID{"2", "19"},
-			expected: Delta{Kind: 3, Node: "0", Remove: []ID{"0", "1", "111"}, Keep: []ID{"19", "2"}},
+			expected: Delta{Kind: 3, Node: "0", Remove: []ID{"0", "1", "111"}, Keep: []ID{"2", "19"}, Add: []ID{}},
 		},
 		{
 			name:     "only additions",
 			old:      []ID{"0", "1"},
 			new:      []ID{"420", "0", "1", "69"},
-			expected: Delta{Kind: 3, Node: "0", Keep: []ID{"0", "1"}, Add: []ID{"420", "69"}},
+			expected: Delta{Kind: 3, Node: "0", Remove: []ID{}, Keep: []ID{"0", "1"}, Add: []ID{"420", "69"}},
 		},
 		{
-			name:     "both additions",
+			name:     "both",
 			old:      []ID{"0", "1", "111"},
 			new:      []ID{"420", "0", "1", "69"},
 			expected: Delta{Kind: 3, Node: "0", Remove: []ID{"111"}, Keep: []ID{"0", "1"}, Add: []ID{"420", "69"}},

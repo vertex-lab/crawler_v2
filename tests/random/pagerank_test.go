@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
@@ -88,7 +89,7 @@ func TestPagerankDynamic(t *testing.T) {
 			store := NewWalkStore()
 
 			// apply a random delta to the graph
-			delta := randomElement(test.deltas)
+			delta := slicex.RandomElement(test.deltas)
 			test.walker.Update(ctx, delta)
 
 			rwalks, err := walks.Generate(ctx, test.walker, test.nodes...)
@@ -171,9 +172,4 @@ func TestPersonalized(t *testing.T) {
 			}
 		})
 	}
-}
-
-// returns a random element of a slice. It panics if the slice is empty or nil.
-func randomElement[S []E, E any](s S) E {
-	return s[rand.IntN(len(s))]
 }

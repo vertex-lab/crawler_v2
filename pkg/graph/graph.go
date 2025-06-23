@@ -5,9 +5,10 @@ package graph
 import (
 	"errors"
 	"math/rand/v2"
-	"slices"
 	"strconv"
 	"time"
+
+	"github.com/pippellia-btc/slicex"
 )
 
 const (
@@ -76,34 +77,7 @@ func NewDelta(kind int, node ID, old, new []ID) Delta {
 		Node: node,
 	}
 
-	slices.Sort(old)
-	slices.Sort(new)
-	i, j := 0, 0
-	oldLen, newLen := len(old), len(new)
-
-	for i < oldLen && j < newLen {
-		switch {
-		case old[i] < new[j]:
-			// ID is in old but not in new => remove
-			delta.Remove = append(delta.Remove, old[i])
-			i++
-
-		case old[i] > new[j]:
-			// ID is in new but not in old => add
-			delta.Add = append(delta.Add, new[j])
-			j++
-
-		default:
-			// ID is in both => keep
-			delta.Keep = append(delta.Keep, old[i])
-			i++
-			j++
-		}
-	}
-
-	// add all elements not traversed
-	delta.Remove = append(delta.Remove, old[i:]...)
-	delta.Add = append(delta.Add, new[j:]...)
+	delta.Remove, delta.Keep, delta.Add = slicex.Partition(old, new)
 	return delta
 }
 

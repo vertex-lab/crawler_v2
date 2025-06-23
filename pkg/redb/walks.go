@@ -1,13 +1,12 @@
 package redb
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 
@@ -25,9 +24,10 @@ const (
 )
 
 var (
-	ErrWalkNotFound       = errors.New("walk not found")
-	ErrInvalidReplacement = errors.New("invalid walk replacement")
-	ErrInvalidLimit       = errors.New("limit must be a positive integer, or -1 to fetch all walks")
+	ErrInvalidWalkParameters = errors.New("invalid walk parameters")
+	ErrWalkNotFound          = errors.New("walk not found")
+	ErrInvalidReplacement    = errors.New("invalid walk replacement")
+	ErrInvalidLimit          = errors.New("limit must be a positive integer, or -1 to fetch all walks")
 )
 
 // init the walk store checking the existence of [KeyRWS].
@@ -59,11 +59,11 @@ func (db RedisDB) init() error {
 		}
 
 		if alpha != walks.Alpha {
-			return errors.New("alpha and walks.Alpha are different")
+			return fmt.Errorf("%w: alpha and walks.Alpha are different", ErrInvalidWalkParameters)
 		}
 
 		if N != walks.N {
-			return errors.New("N and walks.N are different")
+			return fmt.Errorf("%w: N and walks.N are different", ErrInvalidWalkParameters)
 		}
 
 	case 0:
@@ -172,7 +172,7 @@ func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit 
 			IDs = append(IDs, cmd.Val()...)
 		}
 
-		unique := unique(IDs)
+		unique := slicex.Unique(IDs)
 		return db.Walks(ctx, toWalks(unique)...)
 
 	case limit > 0:
@@ -198,7 +198,7 @@ func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit 
 			IDs = append(IDs, cmd.Val()...)
 		}
 
-		unique := unique(IDs)
+		unique := slicex.Unique(IDs)
 		return db.Walks(ctx, toWalks(unique)...)
 
 	default:
@@ -396,23 +396,4 @@ func (db RedisDB) ScanWalks(ctx context.Context, cursor uint64, limit int) ([]wa
 	}
 
 	return batch, cursor, nil
-}
-
-// unique returns a slice of unique elements of the input slice.
-func unique[E cmp.Ordered](slice []E) []E {
-	if len(slice) == 0 {
-		return nil
-	}
-
-	slices.Sort(slice)
-	unique := make([]E, 0, len(slice))
-	unique = append(unique, slice[0])
-
-	for i := 1; i < len(slice); i++ {
-		if slice[i] != slice[i-1] {
-			unique = append(unique, slice[i])
-		}
-	}
-
-	return unique
 }

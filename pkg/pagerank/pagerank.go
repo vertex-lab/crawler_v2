@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
@@ -278,7 +279,7 @@ func personalizedWalk(
 				continue
 			}
 
-			node := randomElement(follows)
+			node := slicex.RandomElement(follows)
 			if walk.ongoing.Visits(node) {
 				// found a cycle, stop
 				walk.Reset()
@@ -306,9 +307,4 @@ func frequencyMap(path []graph.ID) map[graph.ID]float64 {
 	}
 
 	return freqs
-}
-
-// returns a random element of a slice. It panics if the slice is empty or nil.
-func randomElement[S []E, E any](s S) E {
-	return s[rand.IntN(len(s))]
 }

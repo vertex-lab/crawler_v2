@@ -12,30 +12,31 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// func TestValidate(t *testing.T) {
-// 	tests := []struct {
-// 		name  string
-// 		setup func() (RedisDB, error)
-// 		err   error
-// 	}{
-// 		{name: "empty", setup: Empty, err: ErrValueIsNil},
-// 		{name: "valid", setup: SomeWalks(0)},
-// 	}
+func TestInit(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func() (RedisDB, error)
+		err   error
+	}{
+		{name: "seed", setup: Empty},
+		{name: "invalid", setup: Invalid, err: ErrInvalidWalkParameters},
+		{name: "valid", setup: SomeWalks(0)},
+	}
 
-// 	for _, test := range tests {
-// 		t.Run(test.name, func(t *testing.T) {
-// 			db, err := test.setup()
-// 			if err != nil {
-// 				t.Fatalf("setup failed: %v", err)
-// 			}
-// 			defer db.flushAll()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := test.setup()
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			defer db.flushAll()
 
-// 			if err = db.validateWalks(); !errors.Is(err, test.err) {
-// 				t.Fatalf("expected error %v, got %v", test.err, err)
-// 			}
-// 		})
-// 	}
-// }
+			if err = db.init(); !errors.Is(err, test.err) {
+				t.Fatalf("expected error %v, got %v", test.err, err)
+			}
+		})
+	}
+}
 
 func TestWalksVisiting(t *testing.T) {
 	tests := []struct {
@@ -353,38 +354,6 @@ func TestValidateReplacement(t *testing.T) {
 	}
 }
 
-func TestUnique(t *testing.T) {
-	tests := []struct {
-		slice    []walks.ID
-		expected []walks.ID
-	}{
-		{slice: nil, expected: nil},
-		{slice: []walks.ID{}, expected: nil},
-		{slice: []walks.ID{"1", "2", "0"}, expected: []walks.ID{"0", "1", "2"}},
-		{slice: []walks.ID{"1", "2", "0", "3", "1", "0"}, expected: []walks.ID{"0", "1", "2", "3"}},
-	}
-
-	for _, test := range tests {
-		unique := unique(test.slice)
-		if !reflect.DeepEqual(unique, test.expected) {
-			t.Errorf("expected %v, got %v", test.expected, unique)
-		}
-	}
-}
-
-func BenchmarkUnique(b *testing.B) {
-	size := 1000000
-	IDs := make([]walks.ID, size)
-	for i := 0; i < size; i++ {
-		IDs[i] = walks.ID(strconv.Itoa(i))
-	}
-
-	b.ResetTimer()
-	for range b.N {
-		unique(IDs)
-	}
-}
-
 var defaultWalk = walks.Walk{Path: []graph.ID{"0", "1"}}
 
 func SomeWalks(n int) func() (RedisDB, error) {
@@ -402,4 +371,12 @@ func SomeWalks(n int) func() (RedisDB, error) {
 
 		return db, nil
 	}
+}
+
+func Invalid() (RedisDB, error) {
+	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+	if err := db.Client.HSet(ctx, KeyRWS, KeyAlpha, 69, KeyWalksPerNode, 420).Err(); err != nil {
+		return RedisDB{}, err
+	}
+	return db, nil
 }
