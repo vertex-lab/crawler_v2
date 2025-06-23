@@ -194,7 +194,7 @@ func computeDelta(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalke
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
 
-	pubkeys := parsePubkeys(event)
+	pubkeys := ParsePubkeys(event)
 	onMissing := redb.Ignore
 	if author.Status == graph.StatusActive {
 		// active nodes are the only ones that can add new pubkeys to the database
@@ -239,8 +239,8 @@ const (
 	maxFollows   = 50000
 )
 
-// parse unique pubkeys (excluding author) from the "p" tags in the event.
-func parsePubkeys(event *nostr.Event) []string {
+// Parse unique pubkeys (excluding author) from the "p" tags in the event.
+func ParsePubkeys(event *nostr.Event) []string {
 	pubkeys := make([]string, 0, min(len(event.Tags), maxFollows))
 	for _, tag := range event.Tags {
 		if len(pubkeys) > maxFollows {
