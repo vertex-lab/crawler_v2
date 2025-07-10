@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/relay/pkg/eventstore"
+	"github.com/pippellia-btc/nastro"
 )
 
 var (
@@ -257,7 +257,7 @@ func fetch(ctx context.Context, pool *nostr.SimplePool, relays, pubkeys []string
 func FetcherDB(
 	ctx context.Context,
 	config FetcherConfig,
-	store *eventstore.Store,
+	store nastro.Store,
 	pubkeys <-chan string,
 	send func(*nostr.Event) error) {
 
@@ -281,7 +281,7 @@ func FetcherDB(
 				continue
 			}
 
-			events, err := store.Query(ctx, &nostr.Filter{Kinds: Kinds, Authors: batch})
+			events, err := store.Query(ctx, nostr.Filter{Kinds: Kinds, Authors: batch})
 			if err != nil {
 				log.Printf("FetcherDB: %v", err)
 			}
@@ -300,7 +300,7 @@ func FetcherDB(
 				continue
 			}
 
-			events, err := store.Query(ctx, &nostr.Filter{Kinds: Kinds, Authors: batch})
+			events, err := store.Query(ctx, nostr.Filter{Kinds: Kinds, Authors: batch})
 			if err != nil {
 				log.Printf("FetcherDB: %v", err)
 			}

@@ -106,17 +106,14 @@ func TestPagerank(t *testing.T) {
 
 	walker := walks.NewSimpleWalker(followMap)
 	store := test.NewWalkStore()
-
 	fmt.Println(" > db copied")
-	fmt.Printf(" > generating walks...\n")
-	fmt.Printf("---------------------------------\n\n")
 
 	var active int
 	for i, ID := range nodes {
 		if i%1000 == 0 {
 			fmt.Printf("\033[1A")
 			fmt.Print("\033[J")
-			fmt.Printf("progress %d/%d...\n", i+1, len(nodes))
+			fmt.Printf(" > generating walks %d/%d...\n", i+1, len(nodes))
 		}
 
 		node, err := db.NodeByID(ctx, ID)
@@ -142,8 +139,9 @@ func TestPagerank(t *testing.T) {
 
 	expected := expectedDistance(active, len(nodes))
 	distance := test.Distance(original, recomputed)
-	fmt.Printf("expected distance %f, got %f\n", expected, distance)
 
+	fmt.Println("---------------------------------")
+	fmt.Printf("expected distance %f, got %f\n", expected, distance)
 	if distance > expected {
 		t.Fatalf("distance is higher than expected!")
 	}

@@ -8,13 +8,13 @@ import (
 	"log"
 	"time"
 
+	"github.com/pippellia-btc/nastro"
 	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/relay/pkg/eventstore"
 )
 
 type EngineConfig struct {
@@ -44,7 +44,7 @@ func (c EngineConfig) Print() {
 func Engine(
 	ctx context.Context,
 	config EngineConfig,
-	store *eventstore.Store,
+	store nastro.Store,
 	db redb.RedisDB,
 	events chan *nostr.Event) {
 
@@ -72,7 +72,7 @@ func Engine(
 func Archiver(
 	ctx context.Context,
 	config EngineConfig,
-	store *eventstore.Store,
+	store nastro.Store,
 	events chan *nostr.Event,
 	onReplace func(*nostr.Event) error) {
 
@@ -204,7 +204,6 @@ func computeDelta(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalke
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
-
 	return graph.NewDelta(event.Kind, author.ID, oldFollows, newFollows), nil
 }
 

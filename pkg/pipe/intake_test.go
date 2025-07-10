@@ -24,7 +24,6 @@ func TestFirehose(t *testing.T) {
 
 	checker := mockChecker{pubkey: pip}
 	config := NewFirehoseConfig()
-
 	Firehose(ctx, config, checker, print)
 }
 
