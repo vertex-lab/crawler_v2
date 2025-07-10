@@ -4,8 +4,6 @@ package graph
 
 import (
 	"errors"
-	"math/rand/v2"
-	"strconv"
 	"time"
 
 	"github.com/pippellia-btc/slicex"
@@ -69,8 +67,6 @@ type Delta struct {
 }
 
 // NewDelta returns a delta by computing the relationships to remove, keep and add.
-// Time complexity O(n * logn + m * logm), where n and m are the lengths of the slices.
-// This function is much faster than converting to sets for sizes (n, m) smaller than ~10^6.
 func NewDelta(kind int, node ID, old, new []ID) Delta {
 	delta := Delta{
 		Kind: kind,
@@ -105,14 +101,4 @@ func (d Delta) Inverse() Delta {
 		Remove: d.Add,
 		Add:    d.Remove,
 	}
-}
-
-// RandomIDs of the provided size.
-func RandomIDs(size int) []ID {
-	IDs := make([]ID, size)
-	for i := range size {
-		node := rand.IntN(10000000)
-		IDs[i] = ID(strconv.Itoa(node))
-	}
-	return IDs
 }
