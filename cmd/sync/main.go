@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pippellia-btc/nastro/sqlite"
 	"github.com/vertex-lab/crawler_v2/pkg/config"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/relay/pkg/store"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
@@ -40,7 +40,7 @@ func main() {
 	events := make(chan *nostr.Event, config.EventsCapacity)
 	pubkeys := make(chan string, config.PubkeysCapacity)
 
-	store, err := sqlite.New(config.SQLiteURL)
+	store, err := store.New(config.SQLiteURL)
 	if err != nil {
 		panic(err)
 	}
