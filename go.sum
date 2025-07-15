@@ -54,6 +54,8 @@ github.com/nbd-wtf/go-nostr v0.51.12 h1:MRQcrShiW/cHhnYSVDQ4SIEc7DlYV7U7gg/l4H4g
 github.com/nbd-wtf/go-nostr v0.51.12/go.mod h1:IF30/Cm4AS90wd1GjsFJbBqq7oD1txo+2YUFYXqK3Nc=
 github.com/pippellia-btc/nastro v0.1.3 h1:fL2AUy/1ZcBwIW9tqnlxTC3tg8e8AC/DABqv/Bpe998=
 github.com/pippellia-btc/nastro v0.1.3/go.mod h1:K5EWZqmFjSvPwZceUL3VfJRMagVydXeb1Adnd1rXwkI=
+github.com/pippellia-btc/nastro v0.2.0 h1:KzjQUosn7yPDGJe5ahP+NS/M0qfSNxKc4JT0/Lbzv/Y=
+github.com/pippellia-btc/nastro v0.2.0/go.mod h1:K5EWZqmFjSvPwZceUL3VfJRMagVydXeb1Adnd1rXwkI=
 github.com/pippellia-btc/slicex v0.2.4 h1:zVZ7c0pZu01LL0f+cWPrgBdPJHQ3iMyGjf7ucGoO6RY=
 github.com/pippellia-btc/slicex v0.2.4/go.mod h1:fu7VjA9Cdk76wIUlkzWOYiMG8/VEs1fJiUhkKqEopd8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
@@ -84,6 +86,8 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/vertex-lab/relay v0.5.0 h1:LtIeXLI7LTPBWTjszidyS4zAKys8VXdah4jBiTc+SsM=
 github.com/vertex-lab/relay v0.5.0/go.mod h1:USio/wBCi1QjMFsDzcsugL81eVkTjmT3Hi2xvD7oanY=
+github.com/vertex-lab/relay v0.5.1 h1:itzKYf55IYi9FKflPGfIFbbf5kshfRd2zendPAgDGZc=
+github.com/vertex-lab/relay v0.5.1/go.mod h1:hG8QIxmkAo7jn5QVgE3iPsaEwyOf/81rpxBE2rYW86U=
 golang.org/x/arch v0.15.0 h1:QtOrQd0bTUnhNVNndMpLHNWrDmYzZ2KDqSrEymqInZw=
 golang.org/x/arch v0.15.0/go.mod h1:JmwW7aLIoRUKgaTzhkiEFxvcEiQGyOg9BMonBJUS7EE=
 golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 h1:nDVHiLt8aIbd/VzvPWN6kSOPE7+F/fNFDSXLVYkE/Iw=
