@@ -232,16 +232,11 @@ func updateWalks(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalker
 	return nil
 }
 
-const (
-	followPrefix = "p"
-	maxFollows   = 50000
-)
-
 // Parse unique pubkeys (excluding author) from the "p" tags in the event.
 func ParsePubkeys(event *nostr.Event) []string {
-	pubkeys := make([]string, 0, min(len(event.Tags), maxFollows))
+	pubkeys := make([]string, 0, min(len(event.Tags), maxTags))
 	for _, tag := range event.Tags {
-		if len(pubkeys) > maxFollows {
+		if len(pubkeys) > maxTags {
 			// stop processing, list is too big
 			break
 		}
@@ -251,7 +246,7 @@ func ParsePubkeys(event *nostr.Event) []string {
 		}
 
 		prefix, pubkey := tag[0], tag[1]
-		if prefix != followPrefix {
+		if prefix != "p" {
 			continue
 		}
 

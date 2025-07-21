@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -323,4 +324,21 @@ func shutdown(pool *nostr.SimplePool) {
 		relay.Close()
 		return true
 	})
+}
+
+var (
+	ErrEventTooBig = errors.New("event is too big")
+	maxTags        = 20_000
+	maxContent     = 50_000
+)
+
+// EventTooBig is a [nastro.EventPolicy] that errs if the event is too big.
+func EventTooBig(e *nostr.Event) error {
+	if len(e.Tags) > maxTags {
+		return fmt.Errorf("%w: event with ID %s has too many tags: %d", ErrEventTooBig, e.ID, len(e.Tags))
+	}
+	if len(e.Content) > maxContent {
+		return fmt.Errorf("%w: event with ID %s has too much content: %d", ErrEventTooBig, e.ID, len(e.Content))
+	}
+	return nil
 }
