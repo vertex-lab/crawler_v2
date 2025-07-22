@@ -282,7 +282,13 @@ func FetcherDB(
 				continue
 			}
 
-			events, err := store.Query(ctx, nostr.Filter{Kinds: Kinds, Authors: batch})
+			filter := nostr.Filter{
+				Kinds:   Kinds,
+				Authors: batch,
+				Limit:   len(Kinds) * len(batch),
+			}
+
+			events, err := store.Query(ctx, filter)
 			if err != nil {
 				log.Printf("FetcherDB: %v", err)
 			}
@@ -301,7 +307,13 @@ func FetcherDB(
 				continue
 			}
 
-			events, err := store.Query(ctx, nostr.Filter{Kinds: Kinds, Authors: batch})
+			filter := nostr.Filter{
+				Kinds:   Kinds,
+				Authors: batch,
+				Limit:   len(Kinds) * len(batch),
+			}
+
+			events, err := store.Query(ctx, filter)
 			if err != nil {
 				log.Printf("FetcherDB: %v", err)
 			}
