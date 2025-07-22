@@ -159,7 +159,7 @@ Such distance goes as ~N/sqrt(R), where N is the number of nodes and R is the nu
 URL: https://www-sop.inria.fr/members/Konstantin.Avratchenkov/pubs/mc.pdf
 */
 func expectedDistance(activeNodes, totalNodes int) float64 {
-	const errorConstant = 0.00035 // empirically derived
+	const errorConstant = 2 * 0.00035 // empirically derived
 
 	walks := float64(activeNodes * walks.N)
 	return errorConstant * float64(totalNodes) / math.Sqrt(walks)
