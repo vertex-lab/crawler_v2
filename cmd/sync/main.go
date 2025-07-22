@@ -13,7 +13,7 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
-	"github.com/vertex-lab/relay/pkg/store"
+	"github.com/vertex-lab/crawler_v2/pkg/store"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
@@ -77,14 +77,11 @@ func main() {
 	}
 	log.Printf("correctly added %d init pubkeys", len(config.InitPubkeys))
 
-	pipe.Kinds = []int{
-		nostr.KindFollowList, // no need to sync other event kinds
-	}
-
 	if config.PrintStats {
 		go printStats(ctx, events, pubkeys)
 	}
 
+	pipe.Kinds = []int{nostr.KindFollowList} // no need to sync other event kinds
 	var wg sync.WaitGroup
 	wg.Add(3)
 
