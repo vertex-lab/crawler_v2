@@ -28,15 +28,15 @@ func TestFirehose(t *testing.T) {
 }
 
 func TestFetch(t *testing.T) {
-	pool := nostr.NewSimplePool(ctx)
 	pubkeys := []string{odell, calle, pip}
+	config := NewFetcherConfig()
 
-	events, err := fetch(ctx, pool, defaultRelays, pubkeys)
+	events, err := fetch(ctx, config, pubkeys)
 	if err != nil {
 		t.Fatalf("expected error nil, got %v", err)
 	}
 
-	expected := len(pubkeys) * len(Kinds)
+	expected := len(pubkeys) * 2
 	if len(events) != expected {
 		t.Fatalf("expected %d events, got %d", expected, len(events))
 	}

@@ -37,6 +37,8 @@ func main() {
 		panic(err)
 	}
 
+	config.Fetcher.Kinds = []int{nostr.KindFollowList} // no need to sync other event kinds
+
 	events := make(chan *nostr.Event, config.EventsCapacity)
 	pubkeys := make(chan string, config.PubkeysCapacity)
 
@@ -81,7 +83,6 @@ func main() {
 		go printStats(ctx, events, pubkeys)
 	}
 
-	pipe.Kinds = []int{nostr.KindFollowList} // no need to sync other event kinds
 	var wg sync.WaitGroup
 	wg.Add(3)
 
