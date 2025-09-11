@@ -134,7 +134,6 @@ func GraphBuilder(
 	cache := walks.NewWalker(
 		walks.WithCapacity(config.CacheCapacity),
 		walks.WithFallback(db),
-		walks.WithLogFile("cache.log"),
 	)
 
 	var processed int
