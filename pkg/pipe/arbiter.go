@@ -16,7 +16,7 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
-// WalksTracker tracks the number of walks that have been updated by [Processor].
+// WalksTracker tracks the number of walks that have been updated by the [GraphBuilder].
 // It's used to wake-up the [Arbiter], which performs work and then resets it to 0.
 var WalksTracker atomic.Int32
 
