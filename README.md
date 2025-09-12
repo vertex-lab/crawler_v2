@@ -16,7 +16,7 @@ The goals of this project are:
 
 ## Apps
 
-`/cmd/crawler/`
+`/cmd/crawl/`
 
 The main entry point, which assumes that the event store and Redis are syncronized. In case they are empty, the graph will be initialized using the `INIT_PUBKEYS` specified in the enviroment.
 
