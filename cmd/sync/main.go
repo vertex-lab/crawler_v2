@@ -48,12 +48,12 @@ func main() {
 	}
 
 	db := redb.New(&redis.Options{Addr: config.RedisAddress})
-	count, err := db.NodeCount(ctx)
+	nodes, err := db.NodeCount(ctx)
 	if err != nil {
 		panic(err)
 	}
 
-	if count != 0 {
+	if nodes != 0 {
 		panic("refuse to run sync when redis is not empty")
 	}
 
@@ -62,9 +62,9 @@ func main() {
 	}
 	log.Println("initialize from empty database...")
 
-	nodes := make([]graph.ID, len(config.InitPubkeys))
+	initNodes := make([]graph.ID, len(config.InitPubkeys))
 	for i, pk := range config.InitPubkeys {
-		nodes[i], err = db.AddNode(ctx, pk)
+		initNodes[i], err = db.AddNode(ctx, pk)
 		if err != nil {
 			panic(err)
 		}
@@ -72,7 +72,7 @@ func main() {
 		pubkeys <- pk // add to queue
 	}
 
-	for _, node := range nodes {
+	for _, node := range initNodes {
 		if err := pipe.Promote(db, node); err != nil {
 			panic(err)
 		}
