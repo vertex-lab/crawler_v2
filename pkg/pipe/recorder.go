@@ -66,6 +66,13 @@ func stats(day string) string         { return KeyStats + separator + day }
 func kind(kind int) string            { return KeyKind + separator + strconv.Itoa(kind) }
 func activePubkeys(day string) string { return KeyActivePubkeys + separator + day }
 
+// recordEvent in redis. In particular:
+// - add pubkey to the active_pubkeys HLL (~1% error)
+// - increment the count for event.Kind.
+//
+// The latter assumes that [Recorder] does not receives (many) duplicate events.
+// We could have used an HLL for that as well, but it's unclear whether
+// it would be more precise given the HLL is a probabilistic method with ~1% error.
 func recordEvent(db redb.RedisDB, event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -82,6 +89,7 @@ func recordEvent(db redb.RedisDB, event *nostr.Event) error {
 	return nil
 }
 
+// finalizeStats for a particular day, adding to stats the total and active pubkey counts.
 func finalizeStats(db redb.RedisDB, day string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
