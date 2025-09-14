@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"slices"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -72,29 +71,6 @@ func (c FirehoseConfig) Print() {
 
 type PubkeyChecker interface {
 	Exists(ctx context.Context, pubkey string) (bool, error)
-}
-
-// buffer is a minimalistic ring buffer used to keep track of the latest event IDs
-type buffer struct {
-	IDs      []string
-	capacity int
-	write    int
-}
-
-func newBuffer(capacity int) *buffer {
-	return &buffer{
-		IDs:      make([]string, capacity),
-		capacity: capacity,
-	}
-}
-
-func (b *buffer) Add(ID string) {
-	b.IDs[b.write] = ID
-	b.write = (b.write + 1) % b.capacity
-}
-
-func (b *buffer) Contains(ID string) bool {
-	return slices.Contains(b.IDs, ID)
 }
 
 // Firehose connects to a list of relays and pulls config.Kinds events that are newer than [FirehoseConfig.Since].
