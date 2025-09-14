@@ -60,6 +60,8 @@ const (
 	KeyKind          = "kind"
 	KeyActivePubkeys = "active_pubkeys"
 	KeyTotalPubkeys  = "total_pubkeys"
+
+	expiration = 30 * 24 * time.Hour
 )
 
 func stats(day string) string         { return KeyStats + separator + day }
@@ -82,6 +84,7 @@ func recordEvent(db redb.RedisDB, event *nostr.Event) error {
 	pipe := db.Client.TxPipeline()
 	pipe.HIncrBy(ctx, stats(today), kind(event.Kind), 1)
 	pipe.PFAdd(ctx, activePubkeys(today), event.PubKey)
+	pipe.Expire(ctx, activePubkeys(today), 30*expiration)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("failed to record event: pipeline failed: %w", err)
