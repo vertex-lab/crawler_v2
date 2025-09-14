@@ -40,6 +40,8 @@ func Recorder(
 			}
 
 		case <-timer:
+			// at the beginning of the next day (midnight), finalize
+			// the statistics of the previous day
 			yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 
 			if err := finalizeStats(db, yesterday); err != nil {
@@ -53,14 +55,16 @@ func Recorder(
 }
 
 const (
-	KeyStatsPrefix         = "stats:"
-	KeyKindPrefix          = "kind:"
-	KeyActivePubkeysPrefix = "active_pubkeys:"
+	separator        = ":"
+	KeyStats         = "stats"
+	KeyKind          = "kind"
+	KeyActivePubkeys = "active_pubkeys"
+	KeyTotalPubkeys  = "total_pubkeys"
 )
 
-func stats(day string) string         { return KeyStatsPrefix + day }
-func kind(kind int) string            { return KeyKindPrefix + strconv.Itoa(kind) }
-func activePubkeys(day string) string { return KeyActivePubkeysPrefix + day }
+func stats(day string) string         { return KeyStats + separator + day }
+func kind(kind int) string            { return KeyKind + separator + strconv.Itoa(kind) }
+func activePubkeys(day string) string { return KeyActivePubkeys + separator + day }
 
 func recordEvent(db redb.RedisDB, event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -93,8 +97,8 @@ func finalizeStats(db redb.RedisDB, day string) error {
 	}
 
 	err = db.Client.HSet(ctx, stats(day),
-		"active_pubkeys", activePubkeys,
-		"total_pubkeys", totalPubkeys,
+		KeyActivePubkeys, activePubkeys,
+		KeyTotalPubkeys, totalPubkeys,
 	).Err()
 
 	if err != nil {
