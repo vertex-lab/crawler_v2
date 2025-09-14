@@ -100,7 +100,7 @@ func (b *buffer) Contains(ID string) bool {
 // Firehose connects to a list of relays and pulls config.Kinds events that are newer than [FirehoseConfig.Since].
 // It discards events from unknown pubkeys as an anti-spam mechanism.
 func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, send func(*nostr.Event) error) {
-	defer log.Println("Firehose: shutting down...")
+	defer log.Println("Firehose: shut down")
 
 	pool := nostr.NewSimplePool(ctx)
 	defer shutdown(pool)
@@ -162,7 +162,7 @@ func (c FetcherConfig) Print() {
 // - when the batch is bigger than config.Batch
 // - after config.Interval since the last query.
 func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, send func(*nostr.Event) error) {
-	defer log.Println("Fetcher: shutting down...")
+	defer log.Println("Fetcher: shut down")
 
 	batch := make([]string, 0, config.Batch)
 	timer := time.After(config.Interval)
@@ -262,7 +262,7 @@ func FetcherDB(
 	pubkeys <-chan string,
 	send func(*nostr.Event) error) {
 
-	defer log.Println("FetcherDB: shutting down...")
+	defer log.Println("FetcherDB: shut down")
 
 	batch := make([]string, 0, config.Batch)
 	timer := time.After(config.Interval)

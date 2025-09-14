@@ -60,7 +60,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Arbiter: shutting down...")
+			log.Println("Arbiter: shut down")
 			return
 
 		case <-ticker.C:

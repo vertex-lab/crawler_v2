@@ -52,7 +52,7 @@ func Engine(
 	defer close(graphEvents)
 
 	log.Println("Engine: ready to process events")
-	defer log.Println("Engine: shutting down...")
+	defer log.Println("Engine: shut down")
 
 	go GraphBuilder(ctx, config, db, graphEvents)
 
