@@ -77,6 +77,19 @@ type PubkeyChecker interface {
 
 type Forward[T any] func(T) error
 
+// Send returns a [Forward] function that will attempt to send values into the given channel.
+// It returns an error if the channel is full.
+func Send[T any](ch chan T) Forward[T] {
+	return func(t T) error {
+		select {
+		case ch <- t:
+			return nil
+		default:
+			return fmt.Errorf("channel is full, dropping %v", t)
+		}
+	}
+}
+
 // Firehose connects to a list of relays and pulls config.Kinds events that are newer than config.Since.
 // It deduplicate events using a simple ring-buffer.
 // It discards events from unknown pubkeys as an anti-spam mechanism.
@@ -87,6 +100,7 @@ func Firehose(
 	check PubkeyChecker,
 	forward Forward[*nostr.Event],
 ) {
+	log.Println("Firehose: ready")
 	defer log.Println("Firehose: shut down")
 
 	pool := nostr.NewSimplePool(ctx)

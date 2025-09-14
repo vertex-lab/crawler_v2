@@ -3,7 +3,6 @@ package pipe
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -48,22 +47,14 @@ func Engine(
 	db redb.RedisDB,
 	events chan *nostr.Event,
 ) {
-
 	graphEvents := make(chan *nostr.Event, config.BuilderCapacity)
 	defer close(graphEvents)
-
-	log.Println("Engine: ready to process events")
-	defer log.Println("Engine: shut down")
 
 	go GraphBuilder(ctx, config, db, graphEvents)
 
 	Archiver(ctx, config, store, events, func(e *nostr.Event) error {
 		if e.Kind == nostr.KindFollowList {
-			select {
-			case graphEvents <- e:
-			default:
-				return errors.New("channel is full")
-			}
+			return Send(graphEvents)(e)
 		}
 		return nil
 	})
@@ -77,6 +68,8 @@ func Archiver(
 	events chan *nostr.Event,
 	onReplace func(*nostr.Event) error,
 ) {
+	log.Println("Archiver: ready")
+	defer log.Println("Archiver: shut down")
 
 	var processed int
 
@@ -133,6 +126,8 @@ func GraphBuilder(
 	db redb.RedisDB,
 	events chan *nostr.Event,
 ) {
+	log.Println("GraphBuilder: ready")
+	defer log.Println("GraphBuilder: shut down")
 
 	cache := walks.NewWalker(
 		walks.WithCapacity(config.CacheCapacity),
@@ -149,6 +144,11 @@ func GraphBuilder(
 		case event, ok := <-events:
 			if !ok {
 				return
+			}
+
+			if event.Kind != nostr.KindFollowList {
+				log.Printf("GraphBuilder: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, "unexpected kind")
+				continue
 			}
 
 			err := func() error {
