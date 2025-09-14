@@ -2,7 +2,6 @@ package pipe
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -10,106 +9,6 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/nastro"
 )
-
-var (
-	defaultRelays = []string{
-		"wss://purplepag.es",
-		"wss://njump.me",
-		"wss://relay.snort.social",
-		"wss://relay.damus.io",
-		"wss://relay.primal.net",
-		"wss://relay.nostr.band",
-		"wss://nostr-pub.wellorder.net",
-		"wss://relay.nostr.net",
-		"wss://nostr.lu.ke",
-		"wss://nostr.at",
-		"wss://e.nos.lol",
-		"wss://nostr.lopp.social",
-		"wss://nostr.vulpem.com",
-		"wss://relay.nostr.bg",
-		"wss://wot.utxo.one",
-		"wss://nostrelites.org",
-		"wss://wot.nostr.party",
-		"wss://wot.sovbit.host",
-		"wss://wot.girino.org",
-		"wss://relay.lnau.net",
-		"wss://wot.siamstr.com",
-		"wss://wot.sudocarlos.com",
-		"wss://relay.otherstuff.fyi",
-		"wss://relay.lexingtonbitcoin.org",
-		"wss://wot.azzamo.net",
-		"wss://wot.swarmstr.com",
-		"wss://zap.watch",
-		"wss://satsage.xyz",
-	}
-)
-
-type FirehoseConfig struct {
-	Kinds  []int
-	Relays []string
-	Offset time.Duration
-}
-
-func NewFirehoseConfig() FirehoseConfig {
-	return FirehoseConfig{
-		Kinds:  []int{nostr.KindProfileMetadata, nostr.KindFollowList},
-		Relays: defaultRelays,
-		Offset: time.Minute,
-	}
-}
-
-func (c FirehoseConfig) Since() *nostr.Timestamp {
-	since := nostr.Timestamp(time.Now().Add(-c.Offset).Unix())
-	return &since
-}
-
-func (c FirehoseConfig) Print() {
-	fmt.Printf("Firehose\n")
-	fmt.Printf("  Relays: %v\n", c.Relays)
-	fmt.Printf("  Offset: %v\n", c.Offset)
-}
-
-type PubkeyChecker interface {
-	Exists(ctx context.Context, pubkey string) (bool, error)
-}
-
-// Firehose connects to a list of relays and pulls config.Kinds events that are newer than [FirehoseConfig.Since].
-// It discards events from unknown pubkeys as an anti-spam mechanism.
-func Firehose(ctx context.Context, config FirehoseConfig, check PubkeyChecker, send func(*nostr.Event) error) {
-	defer log.Println("Firehose: shut down")
-
-	pool := nostr.NewSimplePool(ctx)
-	defer shutdown(pool)
-
-	filter := nostr.Filter{
-		Kinds: config.Kinds,
-		Since: config.Since(),
-	}
-
-	seen := newBuffer(1024)
-	for event := range pool.SubscribeMany(ctx, config.Relays, filter) {
-		if seen.Contains(event.ID) {
-			// event already seen, skip
-			continue
-		}
-		seen.Add(event.ID)
-
-		exists, err := check.Exists(ctx, event.PubKey)
-		if err != nil {
-			log.Printf("Firehose: %v", err)
-			continue
-		}
-
-		if !exists {
-			// event from unknown pubkey, skip
-			continue
-		}
-
-		if err := send(event.Event); err != nil {
-			log.Printf("Firehose: %v", err)
-		}
-	}
-}
 
 type FetcherConfig struct {
 	Kinds    []int
@@ -120,7 +19,10 @@ type FetcherConfig struct {
 
 func NewFetcherConfig() FetcherConfig {
 	return FetcherConfig{
-		Kinds:    []int{nostr.KindProfileMetadata, nostr.KindFollowList},
+		Kinds: []int{
+			nostr.KindProfileMetadata,
+			nostr.KindFollowList,
+		},
 		Relays:   defaultRelays,
 		Batch:    100,
 		Interval: time.Minute,
@@ -129,15 +31,21 @@ func NewFetcherConfig() FetcherConfig {
 
 func (c FetcherConfig) Print() {
 	fmt.Printf("Fetcher\n")
+	fmt.Printf("  Kinds: %v\n", c.Kinds)
 	fmt.Printf("  Relays: %v\n", c.Relays)
 	fmt.Printf("  Batch: %d\n", c.Batch)
 	fmt.Printf("  Interval: %v\n", c.Interval)
 }
 
-// Fetcher extracts pubkeys from the channel and queries relays for their events:
-// - when the batch is bigger than config.Batch
-// - after config.Interval since the last query.
-func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, send func(*nostr.Event) error) {
+// Fetcher extracts pubkeys from the channel and queries relays for their events when:
+// - the batch is bigger than config.Batch
+// - more than config.Interval has passed since the last query
+func Fetcher(
+	ctx context.Context,
+	config FetcherConfig,
+	pubkeys <-chan string,
+	forward Forward[*nostr.Event],
+) {
 	defer log.Println("Fetcher: shut down")
 
 	batch := make([]string, 0, config.Batch)
@@ -165,7 +73,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 			}
 
 			for _, event := range events {
-				if err := send(event); err != nil {
+				if err := forward(event); err != nil {
 					log.Printf("Fetcher: %v", err)
 				}
 			}
@@ -181,7 +89,7 @@ func Fetcher(ctx context.Context, config FetcherConfig, pubkeys <-chan string, s
 			}
 
 			for _, event := range events {
-				if err := send(event); err != nil {
+				if err := forward(event); err != nil {
 					log.Printf("Fetcher: %v", err)
 				}
 			}
@@ -236,7 +144,8 @@ func FetcherDB(
 	config FetcherConfig,
 	store nastro.Store,
 	pubkeys <-chan string,
-	send func(*nostr.Event) error) {
+	forward Forward[*nostr.Event],
+) {
 
 	defer log.Println("FetcherDB: shut down")
 
@@ -270,7 +179,7 @@ func FetcherDB(
 			}
 
 			for _, event := range events {
-				if err := send(&event); err != nil {
+				if err := forward(&event); err != nil {
 					log.Printf("FetcherDB: %v", err)
 				}
 			}
@@ -295,7 +204,7 @@ func FetcherDB(
 			}
 
 			for _, event := range events {
-				if err := send(&event); err != nil {
+				if err := forward(&event); err != nil {
 					log.Printf("FetcherDB: %v", err)
 				}
 			}
@@ -304,29 +213,4 @@ func FetcherDB(
 			timer = time.After(config.Interval)
 		}
 	}
-}
-
-// Shutdown iterates over the relays in the pool and closes all connections.
-func shutdown(pool *nostr.SimplePool) {
-	pool.Relays.Range(func(_ string, relay *nostr.Relay) bool {
-		relay.Close()
-		return true
-	})
-}
-
-var (
-	ErrEventTooBig = errors.New("event is too big")
-	maxTags        = 20_000
-	maxContent     = 50_000
-)
-
-// EventTooBig is a [nastro.EventPolicy] that errs if the event is too big.
-func EventTooBig(e *nostr.Event) error {
-	if len(e.Tags) > maxTags {
-		return fmt.Errorf("%w: event with ID %s has too many tags: %d", ErrEventTooBig, e.ID, len(e.Tags))
-	}
-	if len(e.Content) > maxContent {
-		return fmt.Errorf("%w: event with ID %s has too much content: %d", ErrEventTooBig, e.ID, len(e.Content))
-	}
-	return nil
 }

@@ -48,16 +48,22 @@ func (c ArbiterConfig) Print() {
 // Arbiter activates when the % of walks changed is greater than a threshold. Then it:
 // - scans through all the nodes in the database
 // - promotes or demotes nodes
-func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send func(pk string) error) {
+func Arbiter(
+	ctx context.Context,
+	config ArbiterConfig,
+	db redb.RedisDB,
+	forward Forward[string],
+) {
+	defer log.Println("Arbiter: shut down")
+
 	ticker := time.NewTicker(config.PingWait)
 	defer ticker.Stop()
 
-	WalksTracker.Add(1000_000_000) // trigger a scan at startup
+	WalksTracker.Add(100_000_000) // trigger a scan at startup
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Arbiter: shut down")
 			return
 
 		case <-ticker.C:
@@ -71,7 +77,7 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 			changeRatio := float64(changed) / float64(total)
 
 			if changeRatio > config.Activation {
-				promoted, demoted, err := arbiterScan(ctx, config, db, send)
+				promoted, demoted, err := arbiterScan(ctx, config, db, forward)
 				if err != nil && ctx.Err() == nil {
 					log.Printf("Arbiter: %v", err)
 				}
@@ -84,14 +90,20 @@ func Arbiter(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send fu
 }
 
 // ArbiterScan performs one entire database scan, promoting or demoting nodes based on their pagerank.
-func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, send func(pk string) error) (promoted, demoted int, err error) {
+func arbiterScan(
+	ctx context.Context,
+	config ArbiterConfig,
+	db redb.RedisDB,
+	forward Forward[string],
+) (promoted, demoted int, err error) {
+
 	maxTime := 2 * time.Minute
 	ctx, cancel := context.WithTimeout(ctx, maxTime)
 	defer cancel()
 
 	baseRank, err := minPagerank(ctx, db)
 	if err != nil {
-		return promoted, demoted, err
+		return 0, 0, err
 	}
 
 	promotionThreshold := baseRank * config.Promotion
@@ -148,7 +160,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 					}
 
 					promoted++
-					if err := send(node.Pubkey); err != nil {
+					if err := forward(node.Pubkey); err != nil {
 						return promoted, demoted, err
 					}
 				}
@@ -156,7 +168,7 @@ func arbiterScan(ctx context.Context, config ArbiterConfig, db redb.RedisDB, sen
 		}
 
 		if cursor == 0 {
-			// returns to 0, the scan is complete
+			// the scan is complete
 			return promoted, demoted, nil
 		}
 	}

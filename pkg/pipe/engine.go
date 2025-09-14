@@ -46,7 +46,8 @@ func Engine(
 	config EngineConfig,
 	store nastro.Store,
 	db redb.RedisDB,
-	events chan *nostr.Event) {
+	events chan *nostr.Event,
+) {
 
 	graphEvents := make(chan *nostr.Event, config.BuilderCapacity)
 	defer close(graphEvents)
@@ -74,7 +75,8 @@ func Archiver(
 	config EngineConfig,
 	store nastro.Store,
 	events chan *nostr.Event,
-	onReplace func(*nostr.Event) error) {
+	onReplace func(*nostr.Event) error,
+) {
 
 	var processed int
 
@@ -129,7 +131,8 @@ func GraphBuilder(
 	ctx context.Context,
 	config EngineConfig,
 	db redb.RedisDB,
-	events chan *nostr.Event) {
+	events chan *nostr.Event,
+) {
 
 	cache := walks.NewWalker(
 		walks.WithCapacity(config.CacheCapacity),
