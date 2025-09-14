@@ -11,7 +11,6 @@ import (
 
 	"github.com/pippellia-btc/nastro/sqlite"
 	"github.com/vertex-lab/crawler_v2/pkg/config"
-	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/store"
@@ -61,13 +60,17 @@ func main() {
 	}
 
 	if nodes == 0 {
-		if err := initGraph(ctx, db, config.InitPubkeys); err != nil {
+		log.Println("initializing from empty database...")
+
+		if err := pipe.InitGraph(ctx, db, config.InitPubkeys); err != nil {
 			panic(err)
 		}
 
 		for _, pk := range config.InitPubkeys {
 			fetcherQueue <- pk
 		}
+
+		log.Printf("correctly added %d pubkeys", len(config.InitPubkeys))
 	}
 
 	if config.PrintStats {
@@ -108,32 +111,6 @@ func main() {
 	producers.Wait()
 	close(engineQueue)
 	consumers.Wait()
-}
-
-func initGraph(ctx context.Context, db redb.RedisDB, pubkeys []string) error {
-	if len(pubkeys) == 0 {
-		panic("init pubkeys are empty: impossible to initialize")
-	}
-	log.Println("initialize from empty database...")
-
-	var initNodes = make([]graph.ID, len(pubkeys))
-	var err error
-
-	for i, pk := range pubkeys {
-		initNodes[i], err = db.AddNode(ctx, pk)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	for _, node := range initNodes {
-		if err := pipe.Promote(db, node); err != nil {
-			panic(err)
-		}
-	}
-
-	log.Printf("correctly added %d init pubkeys", len(pubkeys))
-	return nil
 }
 
 func printStats(

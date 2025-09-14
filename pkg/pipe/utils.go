@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
 )
 
 var (
@@ -38,6 +40,30 @@ func HandleSignals(cancel context.CancelFunc) {
 
 	log.Println("signal received. shutting down...")
 	cancel()
+}
+
+// InitGraph by adding and promoting the provided pubkeys.
+func InitGraph(ctx context.Context, db redb.RedisDB, pubkeys []string) error {
+	if len(pubkeys) == 0 {
+		return fmt.Errorf("InitGraph: init pubkeys are empty")
+	}
+
+	var initNodes = make([]graph.ID, len(pubkeys))
+	var err error
+
+	for i, pk := range pubkeys {
+		initNodes[i], err = db.AddNode(ctx, pk)
+		if err != nil {
+			return fmt.Errorf("InitGraph: %v", err)
+		}
+	}
+
+	for _, node := range initNodes {
+		if err := Promote(db, node); err != nil {
+			return fmt.Errorf("InitGraph: %v", err)
+		}
+	}
+	return nil
 }
 
 // Shutdown iterates over the relays in the pool and closes all connections.

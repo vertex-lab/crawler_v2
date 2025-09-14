@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/vertex-lab/crawler_v2/pkg/config"
-	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/store"
@@ -57,30 +56,20 @@ func main() {
 	}
 
 	if nodes != 0 {
-		panic("refuse to run sync when redis is not empty")
+		panic("refuse to sync when redis is not empty")
 	}
 
-	if len(config.InitPubkeys) == 0 {
-		panic("init fetcherQueue are empty: impossible to initialize")
-	}
 	log.Println("initialize from empty database...")
 
-	initNodes := make([]graph.ID, len(config.InitPubkeys))
-	for i, pk := range config.InitPubkeys {
-		initNodes[i], err = db.AddNode(ctx, pk)
-		if err != nil {
-			panic(err)
-		}
-
-		fetcherQueue <- pk // add to queue
+	if err := pipe.InitGraph(ctx, db, config.InitPubkeys); err != nil {
+		panic(err)
 	}
 
-	for _, node := range initNodes {
-		if err := pipe.Promote(db, node); err != nil {
-			panic(err)
-		}
+	for _, pk := range config.InitPubkeys {
+		fetcherQueue <- pk
 	}
-	log.Printf("correctly added %d init fetcherQueue", len(config.InitPubkeys))
+
+	log.Printf("correctly added %d pubkeys", len(config.InitPubkeys))
 
 	if config.PrintStats {
 		go printStats(ctx, builderQueue, fetcherQueue)
