@@ -17,6 +17,7 @@ func Recorder(
 	events <-chan *nostr.Event,
 	forward Forward[*nostr.Event],
 ) {
+	log.Println("Recorder: ready")
 	defer log.Println("Recorder: shut down")
 	timer := midnightTimer()
 
@@ -45,6 +46,7 @@ func Recorder(
 				log.Printf("Recorder: %v", err)
 			}
 
+			log.Printf("Recorder: finalized stats for %s", yesterday)
 			timer = midnightTimer()
 		}
 	}

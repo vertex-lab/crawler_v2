@@ -46,6 +46,7 @@ func Fetcher(
 	pubkeys <-chan string,
 	forward Forward[*nostr.Event],
 ) {
+	log.Println("Fetcher: ready")
 	defer log.Println("Fetcher: shut down")
 
 	batch := make([]string, 0, config.Batch)
@@ -146,7 +147,7 @@ func FetcherDB(
 	pubkeys <-chan string,
 	forward Forward[*nostr.Event],
 ) {
-
+	log.Println("FetcherDB: ready")
 	defer log.Println("FetcherDB: shut down")
 
 	batch := make([]string, 0, config.Batch)

@@ -54,6 +54,7 @@ func Arbiter(
 	db redb.RedisDB,
 	forward Forward[string],
 ) {
+	log.Println("Arbiter: ready")
 	defer log.Println("Arbiter: shut down")
 
 	ticker := time.NewTicker(config.PingWait)
