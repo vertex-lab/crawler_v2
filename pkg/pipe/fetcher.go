@@ -104,7 +104,7 @@ func fetch(ctx context.Context, config FetcherConfig, pubkeys []string) ([]*nost
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	pool := nostr.NewSimplePool(ctx)
