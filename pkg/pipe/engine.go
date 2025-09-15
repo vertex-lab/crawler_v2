@@ -83,10 +83,6 @@ func Archiver(
 				return
 			}
 
-			// if slices.Contains(userMetadataKinds, event.Kind) {
-
-			// }
-
 			err := func() error {
 				opctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				defer cancel()
