@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -40,6 +41,37 @@ var (
 		"wss://zap.watch",
 		"wss://satsage.xyz",
 	}
+
+	contentKinds = []int{
+		nostr.KindTextNote,
+		nostr.KindComment,
+		nostr.KindArticle,
+		20, // Picture Event
+		21, // Video Event
+		22, // "Tik-Tok" Video Event
+	}
+
+	engagementKinds = []int{
+		nostr.KindReaction,
+		nostr.KindRepost,
+		nostr.KindGenericRepost,
+		nostr.KindZap,
+		nostr.KindNutZap,
+	}
+
+	profileKinds = []int{
+		nostr.KindProfileMetadata,
+		nostr.KindFollowList,
+		nostr.KindMuteList,
+		nostr.KindRelayListMetadata,
+		nostr.KindUserServerList,
+	}
+
+	allKinds = slices.Concat(
+		contentKinds,
+		engagementKinds,
+		profileKinds,
+	)
 )
 
 type FirehoseConfig struct {
@@ -50,10 +82,7 @@ type FirehoseConfig struct {
 
 func NewFirehoseConfig() FirehoseConfig {
 	return FirehoseConfig{
-		Kinds: []int{
-			nostr.KindProfileMetadata,
-			nostr.KindFollowList,
-		},
+		Kinds:  allKinds,
 		Relays: defaultRelays,
 		Offset: time.Minute,
 	}

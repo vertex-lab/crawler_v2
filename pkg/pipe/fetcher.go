@@ -19,10 +19,7 @@ type FetcherConfig struct {
 
 func NewFetcherConfig() FetcherConfig {
 	return FetcherConfig{
-		Kinds: []int{
-			nostr.KindProfileMetadata,
-			nostr.KindFollowList,
-		},
+		Kinds:    profileKinds,
 		Relays:   defaultRelays,
 		Batch:    100,
 		Interval: time.Minute,

@@ -89,7 +89,7 @@ func Archiver(
 
 				switch {
 				case nostr.IsRegularKind(event.Kind):
-					return store.Save(opctx, event)
+					return nil // do nothing
 
 				case nostr.IsReplaceableKind(event.Kind):
 					replaced, err := store.Replace(opctx, event)
