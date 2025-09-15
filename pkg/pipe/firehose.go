@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
 )
 
 var (
@@ -100,10 +101,6 @@ func (c FirehoseConfig) Print() {
 	fmt.Printf("  Offset: %v\n", c.Offset)
 }
 
-type PubkeyChecker interface {
-	Exists(ctx context.Context, pubkey string) (bool, error)
-}
-
 type Forward[T any] func(T) error
 
 // Send returns a [Forward] function that will attempt to send values into the given channel.
@@ -119,14 +116,50 @@ func Send[T any](ch chan T) Forward[T] {
 	}
 }
 
+type PubkeyGate interface {
+	Allows(ctx context.Context, pubkey string) bool
+}
+
+// ExistenceGate is a [PubkeyGate] that allows pubkeys if they exists in the database.
+// The assumption is that keys can't be removed from the database.
+type ExistenceGate struct {
+	exists   map[string]struct{}
+	fallback redb.RedisDB
+}
+
+func NewExistenceGate(fallback redb.RedisDB) *ExistenceGate {
+	return &ExistenceGate{
+		exists:   make(map[string]struct{}),
+		fallback: fallback,
+	}
+}
+
+func (g *ExistenceGate) Allows(ctx context.Context, pubkey string) bool {
+	if _, ok := g.exists[pubkey]; ok {
+		return true
+	}
+
+	exists, err := g.fallback.Exists(ctx, pubkey)
+	if err != nil {
+		log.Printf("ExistanceGate: %v", err)
+		return false
+	}
+
+	if exists {
+		g.exists[pubkey] = struct{}{}
+		return true
+	}
+	return false
+}
+
 // Firehose connects to a list of relays and pulls config.Kinds events that are newer than config.Since.
 // It deduplicate events using a simple ring-buffer.
-// It discards events from unknown pubkeys as an anti-spam mechanism.
+// It applies the [PubkeyGate] to remove events from undesired pubkeys.
 // It forwards the rest using the provided [Forward] function.
 func Firehose(
 	ctx context.Context,
 	config FirehoseConfig,
-	check PubkeyChecker,
+	gate PubkeyGate,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("Firehose: ready")
@@ -147,14 +180,7 @@ func Firehose(
 		}
 		seen.Add(event.ID)
 
-		exists, err := check.Exists(ctx, event.PubKey)
-		if err != nil {
-			log.Printf("Firehose: %v", err)
-			continue
-		}
-
-		if !exists {
-			// event from unknown pubkey, skip
+		if !gate.Allows(ctx, event.PubKey) {
 			continue
 		}
 

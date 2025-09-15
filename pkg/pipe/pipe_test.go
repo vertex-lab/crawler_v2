@@ -19,12 +19,12 @@ var (
 	pip   string = "f683e87035f7ad4f44e0b98cfbd9537e16455a92cd38cefc4cb31db7557f5ef2"
 )
 
-type mockChecker struct {
+type mockGate struct {
 	pubkey string
 }
 
-func (c mockChecker) Exists(ctx context.Context, pubkey string) (bool, error) {
-	return pubkey == c.pubkey, nil
+func (g mockGate) Allows(ctx context.Context, pubkey string) bool {
+	return pubkey == g.pubkey
 }
 
 func print(e *nostr.Event) error {
@@ -39,9 +39,9 @@ func TestFirehose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
 
-	checker := mockChecker{pubkey: pip}
+	gate := mockGate{pubkey: pip}
 	config := NewFirehoseConfig()
-	Firehose(ctx, config, checker, print)
+	Firehose(ctx, config, gate, print)
 }
 
 func TestFetch(t *testing.T) {

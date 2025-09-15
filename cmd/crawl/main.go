@@ -83,7 +83,8 @@ func main() {
 	producers.Add(4)
 	go func() {
 		defer producers.Done()
-		pipe.Firehose(ctx, config.Firehose, db, pipe.Send(recorderQueue))
+		gate := pipe.NewExistenceGate(db)
+		pipe.Firehose(ctx, config.Firehose, gate, pipe.Send(recorderQueue))
 	}()
 
 	go func() {
