@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/redis/go-redis/v9"
+	"github.com/vertex-lab/crawler_v2/pkg/redb"
 )
 
 var (
@@ -54,5 +56,17 @@ func TestFetch(t *testing.T) {
 	expected := len(pubkeys) * 2
 	if len(events) != expected {
 		t.Fatalf("expected %d events, got %d", expected, len(events))
+	}
+}
+
+// Manually check on a test database
+func TestFinalizeStats(t *testing.T) {
+	db := redb.New(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	err := finalizeStats(db, "2025-09-15")
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
 	}
 }
