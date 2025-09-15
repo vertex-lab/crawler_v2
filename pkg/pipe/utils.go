@@ -17,8 +17,8 @@ import (
 
 var (
 	ErrEventTooBig = errors.New("event is too big")
-	maxTags        = 20_000
-	maxContent     = 50_000
+	maxTags        = 50_000
+	maxContent     = 1_000_000
 )
 
 // EventTooBig is a [nastro.EventPolicy] that errs if the event is too big.
