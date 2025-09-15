@@ -84,7 +84,7 @@ func recordEvent(db redb.RedisDB, event *nostr.Event) error {
 	pipe := db.Client.TxPipeline()
 	pipe.HIncrBy(ctx, stats(today), kind(event.Kind), 1)
 	pipe.PFAdd(ctx, activePubkeys(today), event.PubKey)
-	pipe.Expire(ctx, activePubkeys(today), 30*expiration)
+	pipe.Expire(ctx, activePubkeys(today), expiration)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("failed to record event: pipeline failed: %w", err)
