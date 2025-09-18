@@ -184,19 +184,22 @@ func Load() (*Config, error) {
 			config.Arbiter.PromotionWait = time.Duration(wait) * time.Second
 
 		case "ENGINE_PRINT_EVERY":
-			config.Engine.PrintEvery, err = strconv.Atoi(val)
+			printEvery, err := strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
 
+			config.Engine.Archiver.PrintEvery = printEvery
+			config.Engine.Builder.PrintEvery = printEvery
+
 		case "ENGINE_BUILDER_CAPACITY":
-			config.Engine.BuilderCapacity, err = strconv.Atoi(val)
+			config.Engine.ChannelCapacity, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}
 
 		case "ENGINE_CACHE_CAPACITY":
-			config.Engine.CacheCapacity, err = strconv.Atoi(val)
+			config.Engine.Builder.CacheCapacity, err = strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
 			}

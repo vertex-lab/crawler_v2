@@ -92,7 +92,7 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		pipe.GraphBuilder(ctx, config.Engine, db, builderQueue)
+		pipe.GraphBuilder(ctx, config.Engine.Builder, db, builderQueue)
 	}()
 
 	wg.Wait()
