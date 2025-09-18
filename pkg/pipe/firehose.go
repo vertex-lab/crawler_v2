@@ -111,7 +111,7 @@ func Send[T any](ch chan T) Forward[T] {
 		case ch <- t:
 			return nil
 		default:
-			return fmt.Errorf("channel is full, dropping %v", t)
+			return fmt.Errorf("pipe.Send: channel is full, dropping %v", t)
 		}
 	}
 }
