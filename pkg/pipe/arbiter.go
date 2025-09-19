@@ -50,17 +50,17 @@ func (c ArbiterConfig) Validate() error {
 	}
 
 	if c.Demotion <= 1 {
-		log.Println("WARN: Arbiter: demotion multiplier is smaller than 1." +
+		log.Println("WARN: Arbiter: demotion multiplier is smaller than 1. " +
 			"This implies it's impossible for an active node to be demoted")
 	}
 
 	if 1+c.Promotion <= c.Demotion {
-		log.Println("WARN: Arbiter: the inequality (1 + promotion) > demotion is not satisfied." +
+		log.Println("WARN: Arbiter: the inequality (1 + promotion) > demotion is not satisfied. " +
 			"This implies there will be cyclical promotions -> demotions -> promotions...")
 	}
 
 	if c.PromotionWait < 24*time.Hour {
-		log.Println("WARN: Arbiter: the promotion wait is less than 24hrs." +
+		log.Println("WARN: Arbiter: the promotion wait is less than 24hrs. " +
 			"This implies a reputable attacker could add to the db several bots in a short period of time")
 	}
 	return nil
