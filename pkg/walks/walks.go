@@ -3,7 +3,6 @@ package walks
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -17,7 +16,7 @@ var (
 	Alpha = 0.85 // the dampening factor
 	N     = 100  // the walks per node
 
-	ErrInvalidRemoval = errors.New("the walks to be removed are different than the expected number (100)")
+	ErrInvalidRemoval = fmt.Errorf("the walks to be removed are different than the expected number (%d)", N)
 )
 
 // ID represent how walks are identified in the storage layer
@@ -29,7 +28,6 @@ func (id ID) MarshalBinary() ([]byte, error) { return []byte(id), nil }
 type Walk struct {
 	ID   ID
 	Path []graph.ID
-	// Stop  int
 }
 
 // Len returns the lenght of the walk
