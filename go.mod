@@ -6,6 +6,7 @@ toolchain go1.24.3
 
 require (
 	github.com/joho/godotenv v1.5.1
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/pippellia-btc/nastro v0.3.0
 	github.com/pippellia-btc/slicex v0.2.4

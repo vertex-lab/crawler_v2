@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync/atomic"
@@ -18,12 +19,11 @@ import (
 var WalksTracker atomic.Int32
 
 type ArbiterConfig struct {
-	Activation float64
-	Promotion  float64
-	Demotion   float64
-
-	PromotionWait time.Duration
-	PingWait      time.Duration
+	Activation    float64       `envconfig:"ARBITER_ACTIVATION"`
+	Promotion     float64       `envconfig:"ARBITER_PROMOTION"`
+	Demotion      float64       `envconfig:"ARBITER_DEMOTION"`
+	PromotionWait time.Duration `envconfig:"ARBITER_PROMOTION_WAIT"`
+	PingWait      time.Duration `envconfig:"ARBITER_PING_WAIT"`
 }
 
 func NewArbiterConfig() ArbiterConfig {
@@ -36,8 +36,38 @@ func NewArbiterConfig() ArbiterConfig {
 	}
 }
 
+func (c ArbiterConfig) Validate() error {
+	if c.Activation < 0 {
+		return errors.New("activation ratio cannot be negative")
+	}
+
+	if c.Promotion < 0 {
+		return errors.New("promotion multiplier cannot be negative")
+	}
+
+	if c.Demotion < 0 {
+		return errors.New("demotion multiplier cannot be negative")
+	}
+
+	if c.Demotion <= 1 {
+		log.Println("WARN: Arbiter: demotion multiplier is smaller than 1." +
+			"This implies it's impossible for an active node to be demoted")
+	}
+
+	if 1+c.Promotion <= c.Demotion {
+		log.Println("WARN: Arbiter: the inequality (1 + promotion) > demotion is not satisfied." +
+			"This implies there will be cyclical promotions -> demotions -> promotions...")
+	}
+
+	if c.PromotionWait < 24*time.Hour {
+		log.Println("WARN: Arbiter: the promotion wait is less than 24hrs." +
+			"This implies a reputable attacker could add to the db several bots in a short period of time")
+	}
+	return nil
+}
+
 func (c ArbiterConfig) Print() {
-	fmt.Printf("Arbiter\n")
+	fmt.Printf("Arbiter: \n")
 	fmt.Printf("  Activation: %f\n", c.Activation)
 	fmt.Printf("  Promotion: %f\n", c.Promotion)
 	fmt.Printf("  Demotion: %f\n", c.Demotion)

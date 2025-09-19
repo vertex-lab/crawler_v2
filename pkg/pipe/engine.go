@@ -3,6 +3,7 @@ package pipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -20,7 +21,7 @@ import (
 type EngineConfig struct {
 	Archiver        ArchiverConfig
 	Builder         GraphBuilderConfig
-	ChannelCapacity int
+	ChannelCapacity int `envconfig:"ENGINE_BUILDER_CAPACITY"`
 }
 
 func NewEngineConfig() EngineConfig {
@@ -30,8 +31,20 @@ func NewEngineConfig() EngineConfig {
 	}
 }
 
+func (c EngineConfig) Validate() error {
+	if err := c.Archiver.Validate(); err != nil {
+		return fmt.Errorf("Archiver: %w", err)
+	}
+
+	if err := c.Builder.Validate(); err != nil {
+		return fmt.Errorf("GraphBuilder: %w", err)
+	}
+
+	return nil
+}
+
 func (c EngineConfig) Print() {
-	fmt.Printf("Engine\n")
+	fmt.Printf("Engine:\n")
 	fmt.Printf("  ChannelCapacity: %d\n", c.ChannelCapacity)
 	c.Archiver.Print()
 	c.Builder.Print()
@@ -60,8 +73,8 @@ func Engine(
 }
 
 type ArchiverConfig struct {
-	Kinds      []int
-	PrintEvery int
+	Kinds      []int `envconfig:"ARCHIVER_KINDS"`
+	PrintEvery int   `envconfig:"ENGINE_PRINT_EVERY"`
 }
 
 func NewArchiverConfig() ArchiverConfig {
@@ -71,8 +84,19 @@ func NewArchiverConfig() ArchiverConfig {
 	}
 }
 
+func (c ArchiverConfig) Validate() error {
+	if len(c.Kinds) < 1 {
+		return errors.New("kind list cannot be empty")
+	}
+
+	if c.PrintEvery < 0 {
+		return errors.New("print every cannot be negative")
+	}
+	return nil
+}
+
 func (c ArchiverConfig) Print() {
-	fmt.Printf("Archiver\n")
+	fmt.Printf("Archiver:\n")
 	fmt.Printf("  Kinds: %v\n", c.Kinds)
 	fmt.Printf("  PrintEvery: %d\n", c.PrintEvery)
 }
@@ -149,8 +173,8 @@ func archive(
 }
 
 type GraphBuilderConfig struct {
-	CacheCapacity int
-	PrintEvery    int
+	CacheCapacity int `envconfig:"ENGINE_CACHE_CAPACITY"`
+	PrintEvery    int `envconfig:"ENGINE_PRINT_EVERY"`
 }
 
 func NewGraphBuilderConfig() GraphBuilderConfig {
@@ -160,8 +184,19 @@ func NewGraphBuilderConfig() GraphBuilderConfig {
 	}
 }
 
+func (c GraphBuilderConfig) Validate() error {
+	if c.CacheCapacity < 0 {
+		return errors.New("cache capacity cannot be negative")
+	}
+
+	if c.PrintEvery < 0 {
+		return errors.New("print every cannot be negative")
+	}
+	return nil
+}
+
 func (c GraphBuilderConfig) Print() {
-	fmt.Printf("GraphBuilder\n")
+	fmt.Printf("GraphBuilder:\n")
 	fmt.Printf("  CacheCapacity: %v\n", c.CacheCapacity)
 	fmt.Printf("  PrintEvery: %d\n", c.PrintEvery)
 }

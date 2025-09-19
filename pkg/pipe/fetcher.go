@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,10 +12,10 @@ import (
 )
 
 type FetcherConfig struct {
-	Kinds    []int
-	Relays   []string
-	Batch    int
-	Interval time.Duration
+	Kinds    []int         `envconfig:"FETCHER_KINDS"`
+	Relays   []string      `envconfig:"RELAYS"`
+	Batch    int           `envconfig:"FETCHER_BATCH"`
+	Interval time.Duration `envconfig:"FETCHER_INTERVAL"`
 }
 
 func NewFetcherConfig() FetcherConfig {
@@ -26,8 +27,25 @@ func NewFetcherConfig() FetcherConfig {
 	}
 }
 
+func (c FetcherConfig) Validate() error {
+	if len(c.Kinds) < 1 {
+		return errors.New("kind list cannot be empty")
+	}
+
+	if c.Batch <= 1 {
+		return errors.New("batch value must be positive")
+	}
+
+	for _, relay := range c.Relays {
+		if !nostr.IsValidRelayURL(relay) {
+			return fmt.Errorf("\"%s\" is not a valid relay url", relay)
+		}
+	}
+	return nil
+}
+
 func (c FetcherConfig) Print() {
-	fmt.Printf("Fetcher\n")
+	fmt.Printf("Fetcher:\n")
 	fmt.Printf("  Kinds: %v\n", c.Kinds)
 	fmt.Printf("  Relays: %v\n", c.Relays)
 	fmt.Printf("  Batch: %d\n", c.Batch)

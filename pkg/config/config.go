@@ -2,12 +2,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 
+	"github.com/kelseyhightower/envconfig"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 
 	_ "github.com/joho/godotenv/autoload" // autoloading .env
@@ -15,14 +13,12 @@ import (
 )
 
 type SystemConfig struct {
-	RedisAddress string
-	SQLiteURL    string
-
-	EventsCapacity  int
-	PubkeysCapacity int
-
-	InitPubkeys []string // only used during initialization
-	PrintStats  bool
+	RedisAddress    string   `envconfig:"REDIS_ADDRESS"`
+	SQLiteURL       string   `envconfig:"SQLITE_URL"`
+	EventsCapacity  int      `envconfig:"EVENTS_CAPACITY"`
+	PubkeysCapacity int      `envconfig:"PUBKEYS_CAPACITY"`
+	InitPubkeys     []string `envconfig:"INIT_PUBKEYS"`
+	PrintStats      bool     `envconfig:"PRINT_STATS"`
 }
 
 func NewSystemConfig() SystemConfig {
@@ -32,6 +28,19 @@ func NewSystemConfig() SystemConfig {
 		EventsCapacity:  1000,
 		PubkeysCapacity: 1000,
 	}
+}
+
+func (c SystemConfig) Validate() error {
+	if c.EventsCapacity < 0 {
+		return errors.New("events: value cannot be negative")
+	}
+
+	for _, pk := range c.InitPubkeys {
+		if !nostr.IsValidPublicKey(pk) {
+			return fmt.Errorf("init pubkeys: \"%s\" is not valid hex pubkey", pk)
+		}
+	}
+	return nil
 }
 
 func (c SystemConfig) Print() {
@@ -54,8 +63,8 @@ type Config struct {
 }
 
 // New returns a config with default parameters
-func New() *Config {
-	return &Config{
+func New() Config {
+	return Config{
 		SystemConfig: NewSystemConfig(),
 		Firehose:     pipe.NewFirehoseConfig(),
 		Fetcher:      pipe.NewFetcherConfig(),
@@ -64,7 +73,30 @@ func New() *Config {
 	}
 }
 
-func (c *Config) Print() {
+func (c Config) Validate() error {
+	if err := c.SystemConfig.Validate(); err != nil {
+		return fmt.Errorf("System: %w", err)
+	}
+
+	if err := c.Firehose.Validate(); err != nil {
+		return fmt.Errorf("Firehose: %w", err)
+	}
+
+	if err := c.Fetcher.Validate(); err != nil {
+		return fmt.Errorf("Fetcher: %w", err)
+	}
+
+	if err := c.Arbiter.Validate(); err != nil {
+		return fmt.Errorf("Arbiter: %w", err)
+	}
+
+	if err := c.Engine.Validate(); err != nil {
+		return fmt.Errorf("Engine: %w", err)
+	}
+	return nil
+}
+
+func (c Config) Print() {
 	c.SystemConfig.Print()
 	c.Firehose.Print()
 	c.Fetcher.Print()
@@ -72,138 +104,17 @@ func (c *Config) Print() {
 	c.Engine.Print()
 }
 
-// Load reads the enviroment variables and parses them into a [Config] struct
-func Load() (*Config, error) {
-	var config = New()
-	var err error
+// Load creates a new [Config] with default parameters.
+// Then, if the corresponding environment variable is set, it overwrites them.
+func Load() (Config, error) {
+	config := New()
 
-	for _, item := range os.Environ() {
-		keyVal := strings.SplitN(item, "=", 2)
-		key, val := keyVal[0], keyVal[1]
+	if err := envconfig.Process("", &config); err != nil {
+		return Config{}, fmt.Errorf("config.Load: %w", err)
+	}
 
-		switch key {
-		case "REDIS_ADDRESS":
-			config.RedisAddress = val
-
-		case "SQLITE_URL":
-			config.SQLiteURL = val
-
-		case "EVENTS_CAPACITY":
-			config.EventsCapacity, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "PUBKEYS_CAPACITY":
-			config.PubkeysCapacity, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "INIT_PUBKEYS":
-			pubkeys := strings.Split(val, ",")
-			for _, pk := range pubkeys {
-				if !nostr.IsValidPublicKey(pk) {
-					return nil, fmt.Errorf("pubkey %s is not valid", pk)
-				}
-			}
-
-			config.InitPubkeys = pubkeys
-
-		case "PRINT_STATS":
-			config.PrintStats, err = strconv.ParseBool(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "FIREHOSE_OFFSET":
-			offset, err := strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-			config.Fetcher.Interval = time.Duration(offset) * time.Second
-
-		case "RELAYS":
-			relays := strings.Split(val, ",")
-			if len(relays) == 0 {
-				return nil, fmt.Errorf("relay list is empty")
-			}
-
-			for _, relay := range relays {
-				if !nostr.IsValidRelayURL(relay) {
-					return nil, fmt.Errorf("relay \"%s\" is not a valid url", relay)
-				}
-			}
-
-			config.Firehose.Relays = relays
-			config.Fetcher.Relays = relays
-
-		case "FETCHER_BATCH":
-			config.Fetcher.Batch, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "FETCHER_INTERVAL":
-			interval, err := strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-			config.Fetcher.Interval = time.Duration(interval) * time.Second
-
-		case "ARBITER_ACTIVATION":
-			config.Arbiter.Activation, err = strconv.ParseFloat(val, 64)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "ARBITER_PROMOTION":
-			config.Arbiter.Promotion, err = strconv.ParseFloat(val, 64)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "ARBITER_DEMOTION":
-			config.Arbiter.Demotion, err = strconv.ParseFloat(val, 64)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "ARBITER_PING_WAIT":
-			wait, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-			config.Arbiter.PingWait = time.Duration(wait) * time.Second
-
-		case "ARBITER_PROMOTION_WAIT":
-			wait, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-			config.Arbiter.PromotionWait = time.Duration(wait) * time.Second
-
-		case "ENGINE_PRINT_EVERY":
-			printEvery, err := strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-			config.Engine.Archiver.PrintEvery = printEvery
-			config.Engine.Builder.PrintEvery = printEvery
-
-		case "ENGINE_BUILDER_CAPACITY":
-			config.Engine.ChannelCapacity, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-
-		case "ENGINE_CACHE_CAPACITY":
-			config.Engine.Builder.CacheCapacity, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v", keyVal, err)
-			}
-		}
+	if err := config.Validate(); err != nil {
+		return Config{}, fmt.Errorf("config.Load: %w", err)
 	}
 
 	return config, nil

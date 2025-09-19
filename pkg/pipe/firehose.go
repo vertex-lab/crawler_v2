@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -76,9 +77,9 @@ var (
 )
 
 type FirehoseConfig struct {
-	Kinds  []int
-	Relays []string
-	Offset time.Duration
+	Kinds  []int         `envconfig:"FIREHOSE_KINDS"`
+	Relays []string      `envconfig:"RELAYS"`
+	Offset time.Duration `envconfig:"FIREHOSE_OFFSET"`
 }
 
 func NewFirehoseConfig() FirehoseConfig {
@@ -89,13 +90,26 @@ func NewFirehoseConfig() FirehoseConfig {
 	}
 }
 
+func (c FirehoseConfig) Validate() error {
+	if len(c.Kinds) < 1 {
+		return errors.New("kind list cannot be empty")
+	}
+
+	for _, relay := range c.Relays {
+		if !nostr.IsValidRelayURL(relay) {
+			return fmt.Errorf("\"%s\" is not a valid relay url", relay)
+		}
+	}
+	return nil
+}
+
 func (c FirehoseConfig) Since() *nostr.Timestamp {
 	since := nostr.Timestamp(time.Now().Add(-c.Offset).Unix())
 	return &since
 }
 
 func (c FirehoseConfig) Print() {
-	fmt.Printf("Firehose\n")
+	fmt.Printf("Firehose:\n")
 	fmt.Printf("  Kinds: %v\n", c.Kinds)
 	fmt.Printf("  Relays: %v\n", c.Relays)
 	fmt.Printf("  Offset: %v\n", c.Offset)
