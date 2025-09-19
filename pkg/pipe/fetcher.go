@@ -158,8 +158,8 @@ func fetch(ctx context.Context, config FetcherConfig, pubkeys []string) ([]*nost
 func FetcherDB(
 	ctx context.Context,
 	config FetcherConfig,
-	store nastro.Store,
 	pubkeys <-chan string,
+	store nastro.Store,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("FetcherDB: ready")

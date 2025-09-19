@@ -58,22 +58,22 @@ func (c EngineConfig) Print() {
 func Engine(
 	ctx context.Context,
 	config EngineConfig,
+	events chan *nostr.Event,
 	store nastro.Store,
 	db redb.RedisDB,
-	events chan *nostr.Event,
 ) {
 	graphEvents := make(chan *nostr.Event, config.ChannelCapacity)
 	defer close(graphEvents)
 
-	sendFollowList := func(e *nostr.Event) error {
+	sendGraphEvents := func(e *nostr.Event) error {
 		if e.Kind == nostr.KindFollowList {
 			return Send(graphEvents)(e)
 		}
 		return nil
 	}
 
-	go Grapher(ctx, config.Grapher, db, graphEvents)
-	Archiver(ctx, config.Archiver, store, events, sendFollowList)
+	go Grapher(ctx, config.Grapher, graphEvents, db)
+	Archiver(ctx, config.Archiver, events, store, sendGraphEvents)
 }
 
 type ArchiverConfig struct {
@@ -110,8 +110,8 @@ func (c ArchiverConfig) Print() {
 func Archiver(
 	ctx context.Context,
 	config ArchiverConfig,
-	store nastro.Store,
 	events chan *nostr.Event,
+	store nastro.Store,
 	onReplace Forward[*nostr.Event],
 ) {
 	log.Println("Archiver: ready")
@@ -133,7 +133,7 @@ func Archiver(
 				continue
 			}
 
-			err := archive(ctx, store, event, onReplace)
+			err := archive(ctx, event, store, onReplace)
 			if err != nil && ctx.Err() == nil {
 				log.Printf("Archiver: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, err)
 			}
@@ -150,8 +150,8 @@ func Archiver(
 // If a replacement happened, it calls the provided onReplace
 func archive(
 	ctx context.Context,
-	store nastro.Store,
 	event *nostr.Event,
+	store nastro.Store,
 	onReplace Forward[*nostr.Event],
 ) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -210,8 +210,8 @@ func (c GrapherConfig) Print() {
 func Grapher(
 	ctx context.Context,
 	config GrapherConfig,
-	db redb.RedisDB,
 	events chan *nostr.Event,
+	db redb.RedisDB,
 ) {
 	log.Println("Grapher: ready")
 	defer log.Println("Grapher: shut down")

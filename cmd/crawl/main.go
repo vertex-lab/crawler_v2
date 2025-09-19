@@ -89,7 +89,7 @@ func main() {
 
 	go func() {
 		defer producers.Done()
-		pipe.Recorder(ctx, db, recorderQueue, pipe.Send(engineQueue))
+		pipe.Recorder(ctx, recorderQueue, db, pipe.Send(engineQueue))
 	}()
 
 	go func() {
@@ -106,7 +106,7 @@ func main() {
 	consumers.Add(1)
 	go func() {
 		defer consumers.Done()
-		pipe.Engine(ctx, config.Engine, store, db, engineQueue)
+		pipe.Engine(ctx, config.Engine, engineQueue, store, db)
 	}()
 
 	producers.Wait()

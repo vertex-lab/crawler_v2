@@ -80,7 +80,7 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		pipe.FetcherDB(ctx, config.Fetcher, store, fetcherQueue, pipe.Send(grapherQueue))
+		pipe.FetcherDB(ctx, config.Fetcher, fetcherQueue, store, pipe.Send(grapherQueue))
 		close(grapherQueue) // FetcherDB is the only event producer
 	}()
 
@@ -92,7 +92,7 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		pipe.Grapher(ctx, config.Engine.Grapher, db, grapherQueue)
+		pipe.Grapher(ctx, config.Engine.Grapher, grapherQueue, db)
 	}()
 
 	wg.Wait()

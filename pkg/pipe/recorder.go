@@ -16,8 +16,8 @@ import (
 
 func Recorder(
 	ctx context.Context,
-	db redb.RedisDB,
 	events <-chan *nostr.Event,
+	db redb.RedisDB,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("Recorder: ready")
@@ -35,7 +35,7 @@ func Recorder(
 				return
 			}
 
-			err := recordEvent(ctx, db, event)
+			err := recordEvent(ctx, event, db)
 			if err != nil && ctx.Err() == nil {
 				log.Printf("Recorder: %v", err)
 			}
@@ -84,7 +84,7 @@ func events(day string, k int) string  { return KeyEvents + separator + day + se
 // - add event.ID to the events:<today>:kind:<event.Kind>
 // - add pubkey to the active_pubkeys:<today>
 // - add pubkey to the creator_pubkeys:<today> if event is in [contentKinds]
-func recordEvent(ctx context.Context, db redb.RedisDB, event *nostr.Event) error {
+func recordEvent(ctx context.Context, event *nostr.Event, db redb.RedisDB) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
