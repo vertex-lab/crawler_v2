@@ -178,8 +178,8 @@ func archive(
 }
 
 type GrapherConfig struct {
-	CacheCapacity int `envconfig:"ENGINE_CACHE_CAPACITY"`
-	PrintEvery    int `envconfig:"ENGINE_PRINT_EVERY"`
+	CacheCapacity int `envconfig:"GRAPHER_CACHE_CAPACITY"`
+	PrintEvery    int `envconfig:"GRAPHER_PRINT_EVERY"`
 }
 
 func NewGrapherConfig() GrapherConfig {
