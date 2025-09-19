@@ -32,7 +32,7 @@ func NewArbiterConfig() ArbiterConfig {
 		Activation:    0.01,
 		Promotion:     0.1,
 		Demotion:      1.05,
-		PromotionWait: time.Hour,
+		PromotionWait: 24 * time.Hour,
 		PingWait:      time.Minute,
 		PrintStats:    true,
 	}
