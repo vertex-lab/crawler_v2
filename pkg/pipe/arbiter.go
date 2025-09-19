@@ -24,6 +24,7 @@ type ArbiterConfig struct {
 	Demotion      float64       `envconfig:"ARBITER_DEMOTION"`
 	PromotionWait time.Duration `envconfig:"ARBITER_PROMOTION_WAIT"`
 	PingWait      time.Duration `envconfig:"ARBITER_PING_WAIT"`
+	PrintStats    bool          `envconfig:"ARBITER_PRINT_STATS"`
 }
 
 func NewArbiterConfig() ArbiterConfig {
@@ -33,12 +34,17 @@ func NewArbiterConfig() ArbiterConfig {
 		Demotion:      1.05,
 		PromotionWait: time.Hour,
 		PingWait:      time.Minute,
+		PrintStats:    true,
 	}
 }
 
 func (c ArbiterConfig) Validate() error {
 	if c.Activation < 0 {
 		return errors.New("activation ratio cannot be negative")
+	}
+
+	if c.Activation > 1 {
+		return errors.New("activation ratio cannot be greater than 1")
 	}
 
 	if c.Promotion < 0 {
@@ -73,6 +79,7 @@ func (c ArbiterConfig) Print() {
 	fmt.Printf("  Demotion: %f\n", c.Demotion)
 	fmt.Printf("  PromotionWait: %v\n", c.PromotionWait)
 	fmt.Printf("  PingWait: %v\n", c.PingWait)
+	fmt.Printf("  PrintStats: %v\n", c.PrintStats)
 }
 
 // Arbiter activates when the % of walks changed is greater than a threshold. Then it:
@@ -107,14 +114,17 @@ func Arbiter(
 			changed := WalksTracker.Load()
 			changeRatio := float64(changed) / float64(total)
 
-			if changeRatio > config.Activation {
+			if changeRatio >= config.Activation {
 				promoted, demoted, err := arbiterScan(ctx, config, db, forward)
 				if err != nil && ctx.Err() == nil {
 					log.Printf("Arbiter: %v", err)
 				}
 
+				if config.PrintStats {
+					log.Printf("Arbiter: promoted %d, demoted %d", promoted, demoted)
+				}
+
 				WalksTracker.Store(0) // resets tracker
-				log.Printf("Arbiter: promoted %d, demoted %d", promoted, demoted)
 			}
 		}
 	}
