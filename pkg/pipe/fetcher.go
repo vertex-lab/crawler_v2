@@ -32,7 +32,7 @@ func (c FetcherConfig) Validate() error {
 		return errors.New("kind list cannot be empty")
 	}
 
-	if c.Batch <= 1 {
+	if c.Batch < 1 {
 		return errors.New("batch value must be positive")
 	}
 
