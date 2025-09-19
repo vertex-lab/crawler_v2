@@ -47,7 +47,7 @@ func main() {
 		panic(err)
 	}
 
-	builderQueue := make(chan *nostr.Event, config.ChannelCapacity)
+	grapherQueue := make(chan *nostr.Event, config.ChannelCapacity)
 	fetcherQueue := make(chan string, config.ChannelCapacity)
 
 	nodes, err := db.NodeCount(ctx)
@@ -72,7 +72,7 @@ func main() {
 	log.Printf("correctly added %d pubkeys", len(config.InitPubkeys))
 
 	if config.PrintStats {
-		go printStats(ctx, builderQueue, fetcherQueue)
+		go printStats(ctx, grapherQueue, fetcherQueue)
 	}
 
 	var wg sync.WaitGroup
@@ -80,8 +80,8 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		pipe.FetcherDB(ctx, config.Fetcher, store, fetcherQueue, pipe.Send(builderQueue))
-		close(builderQueue) // FetcherDB is the only event producer
+		pipe.FetcherDB(ctx, config.Fetcher, store, fetcherQueue, pipe.Send(grapherQueue))
+		close(grapherQueue) // FetcherDB is the only event producer
 	}()
 
 	go func() {
@@ -92,7 +92,7 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		pipe.GraphBuilder(ctx, config.Engine.Builder, db, builderQueue)
+		pipe.Grapher(ctx, config.Engine.Grapher, db, grapherQueue)
 	}()
 
 	wg.Wait()
@@ -100,7 +100,7 @@ func main() {
 
 func printStats(
 	ctx context.Context,
-	builderQueue chan *nostr.Event,
+	grapherQueue chan *nostr.Event,
 	fetcherQueue chan string,
 ) {
 	filename := "stats.log"
@@ -126,7 +126,7 @@ func printStats(
 			runtime.ReadMemStats(memStats)
 
 			log.Println("---------------------------------------")
-			log.Printf("GraphBuilder queue: %d/%d\n", len(builderQueue), cap(builderQueue))
+			log.Printf("Grapher queue: %d/%d\n", len(grapherQueue), cap(grapherQueue))
 			log.Printf("FetcherDB queue: %d/%d\n", len(fetcherQueue), cap(fetcherQueue))
 			log.Printf("walks tracker: %v\n", pipe.WalksTracker.Load())
 			log.Printf("goroutines: %d\n", goroutines)
