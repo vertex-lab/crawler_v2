@@ -81,13 +81,13 @@ func main() {
 	go func() {
 		defer wg.Done()
 		pipe.FetcherDB(ctx, config.Fetcher, fetcherQueue, store, pipe.Send(grapherQueue))
-		close(grapherQueue) // FetcherDB is the only event producer
+		close(grapherQueue)
 	}()
 
 	go func() {
 		defer wg.Done()
 		pipe.Arbiter(ctx, config.Arbiter, db, pipe.Send(fetcherQueue))
-		close(fetcherQueue) // Arbiter is the only pubkey producer
+		close(fetcherQueue)
 	}()
 
 	go func() {

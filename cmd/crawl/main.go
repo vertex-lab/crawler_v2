@@ -85,6 +85,7 @@ func main() {
 		defer producers.Done()
 		gate := pipe.NewExistenceGate(db)
 		pipe.Firehose(ctx, config.Firehose, gate, pipe.Send(recorderQueue))
+		close(recorderQueue)
 	}()
 
 	go func() {
@@ -100,7 +101,7 @@ func main() {
 	go func() {
 		defer producers.Done()
 		pipe.Arbiter(ctx, config.Arbiter, db, pipe.Send(fetcherQueue))
-		close(fetcherQueue) // Arbiter is the only pubkey producer
+		close(fetcherQueue)
 	}()
 
 	consumers.Add(1)
