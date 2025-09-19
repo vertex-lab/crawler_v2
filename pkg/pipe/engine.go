@@ -21,7 +21,7 @@ import (
 type EngineConfig struct {
 	Archiver        ArchiverConfig
 	Builder         GraphBuilderConfig
-	ChannelCapacity int `envconfig:"ENGINE_BUILDER_CAPACITY"`
+	ChannelCapacity int `envconfig:"CHANNEL_CAPACITY"`
 }
 
 func NewEngineConfig() EngineConfig {

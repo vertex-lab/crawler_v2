@@ -50,9 +50,9 @@ func main() {
 		panic(err)
 	}
 
-	recorderQueue := make(chan *nostr.Event, config.EventsCapacity)
-	engineQueue := make(chan *nostr.Event, config.EventsCapacity)
-	fetcherQueue := make(chan string, config.PubkeysCapacity)
+	recorderQueue := make(chan *nostr.Event, config.ChannelCapacity)
+	engineQueue := make(chan *nostr.Event, config.ChannelCapacity)
+	fetcherQueue := make(chan string, config.ChannelCapacity)
 
 	nodes, err := db.NodeCount(ctx)
 	if err != nil {

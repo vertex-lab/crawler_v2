@@ -15,8 +15,7 @@ import (
 type SystemConfig struct {
 	RedisAddress    string   `envconfig:"REDIS_ADDRESS"`
 	SQLiteURL       string   `envconfig:"SQLITE_URL"`
-	EventsCapacity  int      `envconfig:"EVENTS_CAPACITY"`
-	PubkeysCapacity int      `envconfig:"PUBKEYS_CAPACITY"`
+	ChannelCapacity int      `envconfig:"CHANNEL_CAPACITY"`
 	InitPubkeys     []string `envconfig:"INIT_PUBKEYS"`
 	PrintStats      bool     `envconfig:"PRINT_STATS"`
 }
@@ -25,14 +24,13 @@ func NewSystemConfig() SystemConfig {
 	return SystemConfig{
 		RedisAddress:    "localhost:6379",
 		SQLiteURL:       "events.sqlite",
-		EventsCapacity:  1000,
-		PubkeysCapacity: 1000,
+		ChannelCapacity: 10_000,
 	}
 }
 
 func (c SystemConfig) Validate() error {
-	if c.EventsCapacity < 0 {
-		return errors.New("events: value cannot be negative")
+	if c.ChannelCapacity < 0 {
+		return errors.New("channel capacity cannot be negative")
 	}
 
 	for _, pk := range c.InitPubkeys {
@@ -47,8 +45,7 @@ func (c SystemConfig) Print() {
 	fmt.Println("System:")
 	fmt.Printf("  RedisAddress: %s\n", c.RedisAddress)
 	fmt.Printf("  SQLiteURL: %s\n", c.SQLiteURL)
-	fmt.Printf("  EventsCapacity: %d\n", c.EventsCapacity)
-	fmt.Printf("  PubkeysCapacity: %d\n", c.PubkeysCapacity)
+	fmt.Printf("  ChannelCapacity: %d\n", c.ChannelCapacity)
 	fmt.Printf("  InitPubkeys: %v\n", c.InitPubkeys)
 	fmt.Printf("  PrintStats: %v\n", c.PrintStats)
 }
