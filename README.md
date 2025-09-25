@@ -12,7 +12,7 @@ The goals of this project are:
 
 - Generate and maintain random walks for nodes in the graph, updating them as the graph topology evolves.
 
-- Use these random walks to efficiently compute acyclic Monte Carlo Pageranks (personalized and global). Algorithms are inspired by [this paper](snap.stanford.edu/class/cs224w-readings/bahmani10pagerank.pdf)
+- Use these random walks to efficiently compute acyclic Monte Carlo Pageranks (personalized and global). Algorithms are inspired by [this paper](http://snap.stanford.edu/class/cs224w-readings/bahmani10pagerank.pdf)
 
 ## Apps
 
