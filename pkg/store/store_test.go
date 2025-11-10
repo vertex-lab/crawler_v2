@@ -11,7 +11,6 @@ import (
 
 var (
 	ctx = context.Background()
-	URL = "test.sqlite"
 
 	event = nostr.Event{
 		ID:        "f7a73d54e45714f5e3ca97b789dfc7898e7dd31f77981989d71a54030e627ff6",
@@ -34,14 +33,20 @@ var (
 )
 
 func TestSaveProfile(t *testing.T) {
-	store, err := New(URL)
+	path := t.TempDir() + "/test.sqlite"
+	store, err := New(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer Remove(URL)
+	defer store.Close()
 
-	if err := store.Save(ctx, &event); err != nil {
+	saved, err := store.Save(ctx, &event)
+	if err != nil {
 		t.Fatal(err)
+	}
+
+	if !saved {
+		t.Fatal("expected saved true, got false")
 	}
 
 	var p Profile

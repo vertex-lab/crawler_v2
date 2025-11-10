@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pippellia-btc/nastro/sqlite"
 	"github.com/vertex-lab/crawler_v2/pkg/config"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/store"
+	sqlite "github.com/vertex-lab/nostr-sqlite"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
@@ -49,6 +49,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer store.Close()
 
 	recorderQueue := make(chan *nostr.Event, config.ChannelCapacity)
 	engineQueue := make(chan *nostr.Event, config.ChannelCapacity)

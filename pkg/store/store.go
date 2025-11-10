@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/pippellia-btc/nastro/sqlite"
+	sqlite "github.com/vertex-lab/nostr-sqlite"
 )
 
 var (
@@ -39,11 +39,11 @@ var (
 	END;`
 
 	// indexing a-z and A-Z tags of responses for efficient look-up
-	responseTagsIndex = `
+	responseTagsTrigger = `
 	CREATE TRIGGER IF NOT EXISTS response_tags_ai AFTER INSERT ON events
 	WHEN (NEW.kind BETWEEN 6312 AND 6315 OR NEW.kind = 7000)
 	BEGIN
-	INSERT INTO event_tags (event_id, key, value)
+	INSERT INTO tags (event_id, key, value)
 		SELECT NEW.id, json_extract(value, '$[0]'), json_extract(value, '$[1]')
 		FROM json_each(NEW.tags)
 		WHERE json_type(value) = 'array'
@@ -53,21 +53,16 @@ var (
 	END;`
 )
 
-func New(URL string, opts ...sqlite.Option) (*sqlite.Store, error) {
-	store, err := sqlite.New(URL,
+func New(path string, options ...sqlite.Option) (*sqlite.Store, error) {
+	options = append(
+		options,
 		sqlite.WithAdditionalSchema(profileFTS),
-		sqlite.WithAdditionalSchema(responseTagsIndex),
-		sqlite.WithRetries(2),
+		sqlite.WithAdditionalSchema(responseTagsTrigger),
 	)
 
+	store, err := sqlite.New(path, options...)
 	if err != nil {
 		return nil, err
-	}
-
-	for _, opt := range opts {
-		if err := opt(store); err != nil {
-			return nil, err
-		}
 	}
 	return store, nil
 }

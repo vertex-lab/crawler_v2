@@ -7,10 +7,10 @@ toolchain go1.24.3
 require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
-	github.com/nbd-wtf/go-nostr v0.51.12
-	github.com/pippellia-btc/nastro v0.3.0
+	github.com/nbd-wtf/go-nostr v0.52.0
 	github.com/pippellia-btc/slicex v0.2.4
 	github.com/redis/go-redis/v9 v9.8.0
+	github.com/vertex-lab/nostr-sqlite v0.3.0
 )
 
 require (
@@ -29,7 +29,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.28 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect

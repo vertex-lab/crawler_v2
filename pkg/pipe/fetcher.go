@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/pippellia-btc/nastro"
+	sqlite "github.com/vertex-lab/nostr-sqlite"
 )
 
 type FetcherConfig struct {
@@ -159,7 +159,7 @@ func FetcherDB(
 	ctx context.Context,
 	config FetcherConfig,
 	pubkeys <-chan string,
-	store nastro.Store,
+	store *sqlite.Store,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("FetcherDB: ready")

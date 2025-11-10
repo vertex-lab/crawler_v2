@@ -9,11 +9,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/pippellia-btc/nastro"
 	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/redb"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
+	sqlite "github.com/vertex-lab/nostr-sqlite"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -59,7 +59,7 @@ func Engine(
 	ctx context.Context,
 	config EngineConfig,
 	events chan *nostr.Event,
-	store nastro.Store,
+	store *sqlite.Store,
 	db redb.RedisDB,
 ) {
 	graphEvents := make(chan *nostr.Event, config.ChannelCapacity)
@@ -111,7 +111,7 @@ func Archiver(
 	ctx context.Context,
 	config ArchiverConfig,
 	events chan *nostr.Event,
-	store nastro.Store,
+	store *sqlite.Store,
 	onReplace Forward[*nostr.Event],
 ) {
 	log.Println("Archiver: ready")
@@ -151,7 +151,7 @@ func Archiver(
 func archive(
 	ctx context.Context,
 	event *nostr.Event,
-	store nastro.Store,
+	store *sqlite.Store,
 	onReplace Forward[*nostr.Event],
 ) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -159,7 +159,8 @@ func archive(
 
 	switch {
 	case nostr.IsRegularKind(event.Kind):
-		return store.Save(ctx, event)
+		_, err := store.Save(ctx, event)
+		return err
 
 	case nostr.IsReplaceableKind(event.Kind) || nostr.IsAddressableKind(event.Kind):
 		replaced, err := store.Replace(ctx, event)
