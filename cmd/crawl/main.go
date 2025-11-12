@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"runtime"
 	"sync"
@@ -38,9 +39,15 @@ func main() {
 		panic(err)
 	}
 
-	db := regraph.New(&redis.Options{
-		Addr: config.RedisAddress,
-	})
+	db, err := regraph.New(
+		&redis.Options{Addr: config.RedisAddress},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+	slog.Info("redis connected", "address", config.RedisAddress)
 
 	store, err := store.New(
 		config.SQLiteURL,
@@ -49,7 +56,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	defer store.Close()
+	slog.Info("sqlite connected", "path", config.SQLiteURL)
 
 	recorderQueue := make(chan *nostr.Event, config.ChannelCapacity)
 	engineQueue := make(chan *nostr.Event, config.ChannelCapacity)
@@ -61,7 +70,7 @@ func main() {
 	}
 
 	if nodes == 0 {
-		log.Println("initializing from empty database...")
+		slog.Info("initializing from empty database...")
 
 		if err := pipe.InitGraph(ctx, db, config.InitPubkeys); err != nil {
 			panic(err)
@@ -71,7 +80,7 @@ func main() {
 			fetcherQueue <- pk
 		}
 
-		log.Printf("correctly added %d pubkeys", len(config.InitPubkeys))
+		slog.Info("correctly added init pubkeys", "count", len(config.InitPubkeys))
 	}
 
 	if config.PrintStats {

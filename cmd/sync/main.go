@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"runtime"
 	"sync"
@@ -38,14 +39,21 @@ func main() {
 
 	config.Fetcher.Kinds = []int{nostr.KindFollowList} // no need to sync other event kinds
 
-	db := regraph.New(&redis.Options{
-		Addr: config.RedisAddress,
-	})
+	db, err := regraph.New(&redis.Options{Addr: config.RedisAddress})
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+	slog.Info("redis connected", "address", config.RedisAddress)
 
 	store, err := store.New(config.SQLiteURL)
 	if err != nil {
 		panic(err)
 	}
+
+	defer store.Close()
+	slog.Info("sqlite connected", "path", config.SQLiteURL)
 
 	grapherQueue := make(chan *nostr.Event, config.ChannelCapacity)
 	fetcherQueue := make(chan string, config.ChannelCapacity)
@@ -59,7 +67,7 @@ func main() {
 		panic("refuse to sync when redis is not empty")
 	}
 
-	log.Println("initialize from empty database...")
+	slog.Info("initialize from empty database...")
 
 	if err := pipe.InitGraph(ctx, db, config.InitPubkeys); err != nil {
 		panic(err)
@@ -69,7 +77,7 @@ func main() {
 		fetcherQueue <- pk
 	}
 
-	log.Printf("correctly added %d pubkeys", len(config.InitPubkeys))
+	slog.Info("correctly added init pubkeys", "count", len(config.InitPubkeys))
 
 	if config.PrintStats {
 		go printStats(ctx, grapherQueue, fetcherQueue)

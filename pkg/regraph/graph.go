@@ -38,12 +38,17 @@ type DB struct {
 	Client *redis.Client
 }
 
-func New(opt *redis.Options) DB {
+func New(opt *redis.Options) (DB, error) {
 	db := DB{Client: redis.NewClient(opt)}
 	if err := db.init(); err != nil {
-		panic(err)
+		return DB{}, err
 	}
-	return db
+	return db, nil
+}
+
+// Close closes the client, releasing any open resources.
+func (db DB) Close() error {
+	return db.Client.Close()
 }
 
 // Size returns the DBSize of redis, which is the total number of keys

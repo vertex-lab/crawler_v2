@@ -61,11 +61,12 @@ func TestFetch(t *testing.T) {
 
 // Manually check on a test database
 func TestFinalizeStats(t *testing.T) {
-	db := regraph.New(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	db, err := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	if err != nil {
+		t.Fatalf("setup failed %v", err)
+	}
 
-	err := finalizeStats(db, "2025-09-15")
+	err = finalizeStats(db, "2025-09-15")
 	if err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}

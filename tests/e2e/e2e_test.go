@@ -25,14 +25,16 @@ func TestWalks(t *testing.T) {
 	fmt.Println("Testing the walks consistency")
 	fmt.Printf("-----------------------------\n\n")
 
-	db := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	db, err := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	if err != nil {
+		t.Fatalf("setup failed %v", err)
+	}
 
 	var iteration int
 	var limit int = 10000
 
 	var batch []walks.Walk
 	var cursor uint64
-	var err error
 
 	for {
 		iteration++
@@ -81,7 +83,11 @@ func TestPagerank(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the pagerank distribution")
 
-	db := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	db, err := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	if err != nil {
+		t.Fatalf("setup failed %v", err)
+	}
+
 	nodes, err := db.AllNodes(ctx)
 	if err != nil {
 		t.Fatal(err)
