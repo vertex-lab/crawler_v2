@@ -8,7 +8,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 )
 
 var (
@@ -61,7 +61,7 @@ func TestFetch(t *testing.T) {
 
 // Manually check on a test database
 func TestFinalizeStats(t *testing.T) {
-	db := redb.New(&redis.Options{
+	db := regraph.New(&redis.Options{
 		Addr: "localhost:6379",
 	})
 

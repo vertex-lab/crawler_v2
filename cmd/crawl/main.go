@@ -11,7 +11,7 @@ import (
 
 	"github.com/vertex-lab/crawler_v2/pkg/config"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/store"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 
@@ -38,7 +38,7 @@ func main() {
 		panic(err)
 	}
 
-	db := redb.New(&redis.Options{
+	db := regraph.New(&redis.Options{
 		Addr: config.RedisAddress,
 	})
 

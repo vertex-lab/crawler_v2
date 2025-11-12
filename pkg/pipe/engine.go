@@ -11,7 +11,7 @@ import (
 
 	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 
@@ -60,7 +60,7 @@ func Engine(
 	config EngineConfig,
 	events chan *nostr.Event,
 	store *sqlite.Store,
-	db redb.RedisDB,
+	db regraph.RedisDB,
 ) {
 	graphEvents := make(chan *nostr.Event, config.ChannelCapacity)
 	defer close(graphEvents)
@@ -212,7 +212,7 @@ func Grapher(
 	ctx context.Context,
 	config GrapherConfig,
 	events chan *nostr.Event,
-	db redb.RedisDB,
+	db regraph.RedisDB,
 ) {
 	log.Println("Grapher: ready")
 	defer log.Println("Grapher: shut down")
@@ -272,7 +272,7 @@ func Grapher(
 }
 
 // Compute the delta from the "p" tags in the follow list.
-func computeDelta(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalker, event *nostr.Event) (graph.Delta, error) {
+func computeDelta(ctx context.Context, db regraph.RedisDB, cache *walks.CachedWalker, event *nostr.Event) (graph.Delta, error) {
 	author, err := db.NodeByKey(ctx, event.PubKey)
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
@@ -284,10 +284,10 @@ func computeDelta(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalke
 	}
 
 	pubkeys := ParsePubkeys(event)
-	onMissing := redb.Ignore
+	onMissing := regraph.Ignore
 	if author.Status == graph.StatusActive {
 		// active nodes are the only ones that can add new pubkeys to the database
-		onMissing = redb.AddValid
+		onMissing = regraph.AddValid
 	}
 
 	newFollows, err := db.Resolve(ctx, pubkeys, onMissing)
@@ -298,7 +298,7 @@ func computeDelta(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalke
 }
 
 // updateWalks uses the delta to update the random walks.
-func updateWalks(ctx context.Context, db redb.RedisDB, cache *walks.CachedWalker, delta graph.Delta) error {
+func updateWalks(ctx context.Context, db regraph.RedisDB, cache *walks.CachedWalker, delta graph.Delta) error {
 	if delta.Size() == 0 {
 		// nothing to change, stop
 		return nil

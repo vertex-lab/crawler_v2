@@ -11,7 +11,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 )
 
 var (
@@ -42,7 +42,7 @@ func HandleSignals(cancel context.CancelFunc) {
 }
 
 // InitGraph by adding and promoting the provided pubkeys.
-func InitGraph(ctx context.Context, db redb.RedisDB, pubkeys []string) error {
+func InitGraph(ctx context.Context, db regraph.RedisDB, pubkeys []string) error {
 	if len(pubkeys) == 0 {
 		return fmt.Errorf("InitGraph: init pubkeys are empty")
 	}

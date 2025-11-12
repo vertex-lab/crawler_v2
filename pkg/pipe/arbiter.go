@@ -10,7 +10,7 @@ import (
 
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
@@ -88,7 +88,7 @@ func (c ArbiterConfig) Print() {
 func Arbiter(
 	ctx context.Context,
 	config ArbiterConfig,
-	db redb.RedisDB,
+	db regraph.RedisDB,
 	forward Forward[string],
 ) {
 	log.Println("Arbiter: ready")
@@ -134,7 +134,7 @@ func Arbiter(
 func arbiterScan(
 	ctx context.Context,
 	config ArbiterConfig,
-	db redb.RedisDB,
+	db regraph.RedisDB,
 	forward Forward[string],
 ) (promoted, demoted int, err error) {
 
@@ -218,7 +218,7 @@ func arbiterScan(
 // minPagerank returns the minimum possible pagerank value for an active node.
 // An active node is visited by at least its own walks (the one starting from itself)
 // which are [walks.N].
-func minPagerank(ctx context.Context, db redb.RedisDB) (float64, error) {
+func minPagerank(ctx context.Context, db regraph.RedisDB) (float64, error) {
 	total, err := db.TotalVisits(ctx)
 	if err != nil {
 		return -1, err
@@ -227,7 +227,7 @@ func minPagerank(ctx context.Context, db redb.RedisDB) (float64, error) {
 }
 
 // Demote removes all walks that start from the node and changes its status to inactive.
-func Demote(db redb.RedisDB, node graph.ID) error {
+func Demote(db regraph.RedisDB, node graph.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -249,7 +249,7 @@ func Demote(db redb.RedisDB, node graph.ID) error {
 }
 
 // Promote generates random walks for the node and changes its status to active.
-func Promote(db redb.RedisDB, node graph.ID) error {
+func Promote(db regraph.RedisDB, node graph.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 

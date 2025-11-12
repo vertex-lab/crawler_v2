@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 )
 
 var (
@@ -138,10 +138,10 @@ type PubkeyGate interface {
 // The assumption is that keys can't be removed from the database.
 type ExistenceGate struct {
 	exists   map[string]struct{}
-	fallback redb.RedisDB
+	fallback regraph.RedisDB
 }
 
-func NewExistenceGate(fallback redb.RedisDB) *ExistenceGate {
+func NewExistenceGate(fallback regraph.RedisDB) *ExistenceGate {
 	return &ExistenceGate{
 		exists:   make(map[string]struct{}),
 		fallback: fallback,

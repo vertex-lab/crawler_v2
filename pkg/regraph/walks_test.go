@@ -1,4 +1,4 @@
-package redb
+package regraph
 
 import (
 	"errors"

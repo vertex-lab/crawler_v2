@@ -11,13 +11,13 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 )
 
 func Recorder(
 	ctx context.Context,
 	events <-chan *nostr.Event,
-	db redb.RedisDB,
+	db regraph.RedisDB,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("Recorder: ready")
@@ -84,7 +84,7 @@ func events(day string, k int) string  { return KeyEvents + separator + day + se
 // - add event.ID to the events:<today>:kind:<event.Kind>
 // - add pubkey to the active_pubkeys:<today>
 // - add pubkey to the creator_pubkeys:<today> if event is in [contentKinds]
-func recordEvent(ctx context.Context, event *nostr.Event, db redb.RedisDB) error {
+func recordEvent(ctx context.Context, event *nostr.Event, db regraph.RedisDB) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
@@ -109,7 +109,7 @@ func recordEvent(ctx context.Context, event *nostr.Event, db redb.RedisDB) error
 }
 
 // finalizeStats for a particular day, adding to stats the total and active pubkey counts.
-func finalizeStats(db redb.RedisDB, day string) error {
+func finalizeStats(db regraph.RedisDB, day string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -130,7 +130,7 @@ func finalizeStats(db redb.RedisDB, day string) error {
 
 	actives := pipe.PFCount(ctx, activePubkeys(day))
 	creators := pipe.PFCount(ctx, creatorPubkeys(day))
-	total := pipe.HLen(ctx, redb.KeyKeyIndex)
+	total := pipe.HLen(ctx, regraph.KeyKeyIndex)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("finalizeStats: pipeline failed: %w", err)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
-	"github.com/vertex-lab/crawler_v2/pkg/redb"
+	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	test "github.com/vertex-lab/crawler_v2/tests/random"
 
@@ -25,7 +25,7 @@ func TestWalks(t *testing.T) {
 	fmt.Println("Testing the walks consistency")
 	fmt.Printf("-----------------------------\n\n")
 
-	db := redb.New(&redis.Options{Addr: "localhost:6379"})
+	db := regraph.New(&redis.Options{Addr: "localhost:6379"})
 
 	var iteration int
 	var limit int = 10000
@@ -52,7 +52,7 @@ func TestWalks(t *testing.T) {
 			for _, node := range walk.Path {
 				// check that the walks visiting node contain this walk ID
 				key := string(node) + ":" + string(walk.ID)
-				cmds[key] = pipe.SIsMember(ctx, redb.KeyWalksVisitingPrefix+string(node), walk.ID)
+				cmds[key] = pipe.SIsMember(ctx, regraph.KeyWalksVisitingPrefix+string(node), walk.ID)
 			}
 		}
 
@@ -81,7 +81,7 @@ func TestPagerank(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the pagerank distribution")
 
-	db := redb.New(&redis.Options{Addr: "localhost:6379"})
+	db := regraph.New(&redis.Options{Addr: "localhost:6379"})
 	nodes, err := db.AllNodes(ctx)
 	if err != nil {
 		t.Fatal(err)

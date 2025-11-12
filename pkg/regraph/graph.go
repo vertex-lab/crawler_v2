@@ -1,6 +1,6 @@
-// The package redb defines the redis implementation of the database, which stores
+// The package regraph defines the redis implementation of the database, which stores
 // graph relationships (e.g. follows) as well as random walks.
-package redb
+package regraph
 
 import (
 	"context"
