@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -56,17 +56,17 @@ func (c ArbiterConfig) Validate() error {
 	}
 
 	if c.Demotion <= 1 {
-		log.Println("WARN: Arbiter: demotion multiplier is smaller than 1. " +
+		slog.Warn("Arbiter: demotion multiplier is smaller than 1. " +
 			"This implies it's impossible for an active node to be demoted")
 	}
 
 	if 1+c.Promotion <= c.Demotion {
-		log.Println("WARN: Arbiter: the inequality (1 + promotion) > demotion is not satisfied. " +
+		slog.Warn("Arbiter: the inequality (1 + promotion) > demotion is not satisfied. " +
 			"This implies there will be cyclical promotions -> demotions -> promotions...")
 	}
 
 	if c.PromotionWait < 24*time.Hour {
-		log.Println("WARN: Arbiter: the promotion wait is less than 24hrs. " +
+		slog.Warn("Arbiter: the promotion wait is less than 24hrs. " +
 			"This implies a reputable attacker could add to the db several bots in a short period of time")
 	}
 	return nil
@@ -91,8 +91,8 @@ func Arbiter(
 	db regraph.DB,
 	forward Forward[string],
 ) {
-	log.Println("Arbiter: ready")
-	defer log.Println("Arbiter: shut down")
+	slog.Info("Arbiter: ready")
+	defer slog.Info("Arbiter: shut down")
 
 	ticker := time.NewTicker(config.PingWait)
 	defer ticker.Stop()
@@ -107,7 +107,7 @@ func Arbiter(
 		case <-ticker.C:
 			total, err := db.TotalWalks(ctx)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Arbiter: %v", err)
+				slog.Error("Arbiter: failet to fetch total walks", "error", err)
 				continue
 			}
 
@@ -117,11 +117,11 @@ func Arbiter(
 			if changeRatio >= config.Activation {
 				promoted, demoted, err := arbiterScan(ctx, config, db, forward)
 				if err != nil && ctx.Err() == nil {
-					log.Printf("Arbiter: %v", err)
+					slog.Error("Arbiter: failed to scan", "error", err)
 				}
 
 				if config.PrintStats {
-					log.Printf("Arbiter: promoted %d, demoted %d", promoted, demoted)
+					slog.Info("Arbiter: scan completed", "promoted", promoted, "demoted", demoted)
 				}
 
 				WalksTracker.Store(0) // resets tracker

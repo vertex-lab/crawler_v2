@@ -3,7 +3,7 @@ package pipe
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,8 +20,8 @@ func Recorder(
 	db regraph.DB,
 	forward Forward[*nostr.Event],
 ) {
-	log.Println("Recorder: ready")
-	defer log.Println("Recorder: shut down")
+	slog.Info("Recorder: ready")
+	defer slog.Info("Recorder: shut down")
 
 	timer := midnightTimer()
 
@@ -37,11 +37,11 @@ func Recorder(
 
 			err := recordEvent(ctx, event, db)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Recorder: %v", err)
+				slog.Error("Recorder: failed to record event", "error", err, "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
 			}
 
 			if err := forward(event); err != nil {
-				log.Printf("Recorder: %v", err)
+				slog.Error("Recorder: failed to forward", "error", err)
 			}
 
 		case <-timer:
@@ -51,9 +51,9 @@ func Recorder(
 
 			err := finalizeStats(db, yesterday)
 			if err != nil {
-				log.Printf("Recorder: %v", err)
+				slog.Error("Recorder: failed to finalize stats", "error", err)
 			} else {
-				log.Printf("Recorder: finalized stats for %s", yesterday)
+				slog.Info("Recorder: finalized stats", "day", yesterday)
 			}
 
 			timer = midnightTimer()

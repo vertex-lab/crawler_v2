@@ -4,8 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 	"strconv"
 
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
@@ -21,7 +20,8 @@ type Walker interface {
 // If its size grows larger than capacity, the least recently used (LRU) key is evicted.
 // It is not safe for concurrent use.
 type CachedWalker struct {
-	lookup map[uint32]*list.Element
+	lookup   map[uint32]*list.Element
+	fallback Walker
 
 	// newest at the front, oldest at the back
 	edgeList *list.List
@@ -29,9 +29,7 @@ type CachedWalker struct {
 
 	// for stats
 	calls, hits int
-	log         *log.Logger
-
-	fallback Walker
+	logger      *slog.Logger
 }
 
 type Option func(*CachedWalker)
@@ -45,13 +43,9 @@ func WithCapacity(cap int) Option {
 	}
 }
 
-func WithLogFile(filename string) Option {
+func WithLogger(l *slog.Logger) Option {
 	return func(c *CachedWalker) {
-		file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
-		}
-		c.log = log.New(file, "cache: ", log.LstdFlags)
+		c.logger = l
 	}
 }
 
@@ -122,9 +116,9 @@ func (c *CachedWalker) Size() int {
 }
 
 func (c *CachedWalker) logStats() {
-	if c.log != nil {
+	if c.logger != nil {
 		hitRatio := 100 * float64(c.hits) / float64(c.calls)
-		c.log.Printf("calls %d, hits %f%%", c.calls, hitRatio)
+		c.logger.Info("CachedWalker", "calls", c.calls, "hits", c.hits, "hit-ratio", hitRatio)
 	}
 	c.calls, c.hits = 0, 0
 }

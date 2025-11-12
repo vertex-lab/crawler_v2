@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -61,8 +61,8 @@ func Fetcher(
 	pubkeys <-chan string,
 	forward Forward[*nostr.Event],
 ) {
-	log.Println("Fetcher: ready")
-	defer log.Println("Fetcher: shut down")
+	slog.Info("Fetcher: ready")
+	defer slog.Info("Fetcher: shut down")
 
 	batch := make([]string, 0, config.Batch)
 	timer := time.After(config.Interval)
@@ -84,13 +84,13 @@ func Fetcher(
 
 			events, err := fetch(ctx, config, batch)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Fetcher: %v", err)
+				slog.Error("Fetcher: failed to fetch", "error", err)
 				continue
 			}
 
 			for _, event := range events {
 				if err := forward(event); err != nil {
-					log.Printf("Fetcher: %v", err)
+					slog.Error("Fetcher: failed to forward", "error", err)
 				}
 			}
 
@@ -100,13 +100,13 @@ func Fetcher(
 		case <-timer:
 			events, err := fetch(ctx, config, batch)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Fetcher: %v", err)
+				slog.Error("Fetcher: failed to fetch", "error", err)
 				continue
 			}
 
 			for _, event := range events {
 				if err := forward(event); err != nil {
-					log.Printf("Fetcher: %v", err)
+					slog.Error("Fetcher: failed to forward", "error", err)
 				}
 			}
 
@@ -162,8 +162,8 @@ func FetcherDB(
 	store *sqlite.Store,
 	forward Forward[*nostr.Event],
 ) {
-	log.Println("FetcherDB: ready")
-	defer log.Println("FetcherDB: shut down")
+	slog.Info("FetcherDB: ready")
+	defer slog.Info("FetcherDB: shut down")
 
 	batch := make([]string, 0, config.Batch)
 	timer := time.After(config.Interval)
@@ -191,12 +191,12 @@ func FetcherDB(
 
 			events, err := store.Query(ctx, filter)
 			if err != nil {
-				log.Printf("FetcherDB: %v", err)
+				slog.Error("FetcherDB: failed to query", "error", err)
 			}
 
 			for _, event := range events {
 				if err := forward(&event); err != nil {
-					log.Printf("FetcherDB: %v", err)
+					slog.Error("FetcherDB: failed to forward", "error", err)
 				}
 			}
 
@@ -216,12 +216,12 @@ func FetcherDB(
 
 			events, err := store.Query(ctx, filter)
 			if err != nil {
-				log.Printf("FetcherDB: %v", err)
+				slog.Error("FetcherDB: failed to query", "error", err)
 			}
 
 			for _, event := range events {
 				if err := forward(&event); err != nil {
-					log.Printf("FetcherDB: %v", err)
+					slog.Error("FetcherDB: failed to forward", "error", err)
 				}
 			}
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,7 +37,7 @@ func HandleSignals(cancel context.CancelFunc) {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 
-	log.Println("signal received. shutting down...")
+	slog.Info("signal received. shutting down...")
 	cancel()
 }
 

@@ -31,8 +31,8 @@ func main() {
 	defer cancel()
 	go pipe.HandleSignals(cancel)
 
-	log.Printf("--------- starting up the crawler --------")
-	defer log.Printf("-----------------------------------------")
+	log.Println("--------- starting up the crawler --------")
+	defer log.Println("-----------------------------------------")
 
 	config, err := config.Load()
 	if err != nil {

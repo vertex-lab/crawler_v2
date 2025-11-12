@@ -29,8 +29,8 @@ func main() {
 	defer cancel()
 	go pipe.HandleSignals(cancel)
 
-	log.Printf("--------- starting up the sync process --------")
-	defer log.Printf("------------------------------------------------")
+	log.Println("--------- starting up the sync process --------")
+	defer log.Println("------------------------------------------------")
 
 	config, err := config.Load()
 	if err != nil {

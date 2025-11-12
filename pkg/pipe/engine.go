@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -114,8 +114,8 @@ func Archiver(
 	store *sqlite.Store,
 	onReplace Forward[*nostr.Event],
 ) {
-	log.Println("Archiver: ready")
-	defer log.Println("Archiver: shut down")
+	slog.Info("Archiver: ready")
+	defer slog.Info("Archiver: shut down")
 
 	var processed int
 
@@ -135,12 +135,12 @@ func Archiver(
 
 			err := archive(ctx, event, store, onReplace)
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Archiver: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, err)
+				slog.Error("Archiver: failed to archive event", "error", err, "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
 			}
 
 			processed++
 			if processed%config.PrintEvery == 0 {
-				log.Printf("Archiver: processed %d events", processed)
+				slog.Info("Archiver", "processed", processed)
 			}
 		}
 	}
@@ -214,8 +214,8 @@ func Grapher(
 	events chan *nostr.Event,
 	db regraph.DB,
 ) {
-	log.Println("Grapher: ready")
-	defer log.Println("Grapher: shut down")
+	slog.Info("Grapher: ready")
+	defer slog.Info("Grapher: shut down")
 
 	cache := walks.NewWalker(
 		walks.WithCapacity(config.CacheCapacity),
@@ -235,7 +235,7 @@ func Grapher(
 			}
 
 			if event.Kind != nostr.KindFollowList {
-				log.Printf("Grapher: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, "unexpected kind")
+				slog.Error("Grapher: received unexpected event kind", "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
 				continue
 			}
 
@@ -260,12 +260,12 @@ func Grapher(
 			}()
 
 			if err != nil && ctx.Err() == nil {
-				log.Printf("Grapher: event ID %s, kind %d by %s: %v", event.ID, event.Kind, event.PubKey, err)
+				slog.Error("Grapher: failed to process event", "error", err, "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
 			}
 
 			processed++
 			if processed%config.PrintEvery == 0 {
-				log.Printf("Grapher: processed %d events", processed)
+				slog.Info("Grapher", "processed", processed)
 			}
 		}
 	}

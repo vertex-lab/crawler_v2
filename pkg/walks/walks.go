@@ -4,7 +4,7 @@ package walks
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"slices"
 
@@ -174,7 +174,6 @@ func generate(ctx context.Context, walker Walker, start ...graph.ID) ([]graph.ID
 }
 
 // ToRemove returns the walks that need to be removed.
-// It returns an error if the number of walks to remove differs from the expected [N].
 func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 	toRemove := make([]Walk, 0, N)
 	for _, walk := range walks {
@@ -184,7 +183,7 @@ func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 	}
 
 	if len(toRemove) != N {
-		log.Printf("ToRemove: %v: %d", ErrInvalidRemoval, len(toRemove))
+		slog.Error("walks.ToRemove", "error", ErrInvalidRemoval, "to-remove", len(toRemove))
 	}
 	return toRemove, nil
 }

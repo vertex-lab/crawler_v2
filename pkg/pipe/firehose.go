@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -155,7 +155,7 @@ func (g *ExistenceGate) Allows(ctx context.Context, pubkey string) bool {
 
 	exists, err := g.fallback.Exists(ctx, pubkey)
 	if err != nil {
-		log.Printf("ExistanceGate: %v", err)
+		slog.Error("ExistanceGate", "error", err)
 		return false
 	}
 
@@ -176,8 +176,8 @@ func Firehose(
 	gate PubkeyGate,
 	forward Forward[*nostr.Event],
 ) {
-	log.Println("Firehose: ready")
-	defer log.Println("Firehose: shut down")
+	slog.Info("Firehose: ready")
+	defer slog.Info("Firehose: shut down")
 
 	pool := nostr.NewSimplePool(ctx)
 	defer shutdown(pool)
@@ -199,7 +199,7 @@ func Firehose(
 		}
 
 		if err := forward(event.Event); err != nil {
-			log.Printf("Firehose: %v", err)
+			slog.Error("Firehose: failed to forward", "error", err)
 		}
 	}
 }
