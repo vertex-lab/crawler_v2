@@ -10,7 +10,7 @@ require (
 	github.com/nbd-wtf/go-nostr v0.52.0
 	github.com/pippellia-btc/slicex v0.2.4
 	github.com/redis/go-redis/v9 v9.8.0
-	github.com/vertex-lab/nostr-sqlite v0.3.0
+	github.com/vertex-lab/nostr-sqlite v0.3.1
 )
 
 require (
