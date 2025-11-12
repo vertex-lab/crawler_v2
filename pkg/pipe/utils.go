@@ -42,7 +42,7 @@ func HandleSignals(cancel context.CancelFunc) {
 }
 
 // InitGraph by adding and promoting the provided pubkeys.
-func InitGraph(ctx context.Context, db regraph.RedisDB, pubkeys []string) error {
+func InitGraph(ctx context.Context, db regraph.DB, pubkeys []string) error {
 	if len(pubkeys) == 0 {
 		return fmt.Errorf("InitGraph: init pubkeys are empty")
 	}

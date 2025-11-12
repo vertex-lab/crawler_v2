@@ -17,7 +17,7 @@ import (
 func Recorder(
 	ctx context.Context,
 	events <-chan *nostr.Event,
-	db regraph.RedisDB,
+	db regraph.DB,
 	forward Forward[*nostr.Event],
 ) {
 	log.Println("Recorder: ready")
@@ -84,7 +84,7 @@ func events(day string, k int) string  { return KeyEvents + separator + day + se
 // - add event.ID to the events:<today>:kind:<event.Kind>
 // - add pubkey to the active_pubkeys:<today>
 // - add pubkey to the creator_pubkeys:<today> if event is in [contentKinds]
-func recordEvent(ctx context.Context, event *nostr.Event, db regraph.RedisDB) error {
+func recordEvent(ctx context.Context, event *nostr.Event, db regraph.DB) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
@@ -109,7 +109,7 @@ func recordEvent(ctx context.Context, event *nostr.Event, db regraph.RedisDB) er
 }
 
 // finalizeStats for a particular day, adding to stats the total and active pubkey counts.
-func finalizeStats(db regraph.RedisDB, day string) error {
+func finalizeStats(db regraph.DB, day string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

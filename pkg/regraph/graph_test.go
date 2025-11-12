@@ -127,7 +127,7 @@ func TestAddNode(t *testing.T) {
 func TestMembers(t *testing.T) {
 	tests := []struct {
 		name     string
-		setup    func() (RedisDB, error)
+		setup    func() (DB, error)
 		node     graph.ID
 		expected []graph.ID
 		err      error
@@ -181,7 +181,7 @@ func TestMembers(t *testing.T) {
 func TestBulkMembers(t *testing.T) {
 	tests := []struct {
 		name     string
-		setup    func() (RedisDB, error)
+		setup    func() (DB, error)
 		nodes    []graph.ID
 		expected [][]graph.ID
 		err      error
@@ -281,7 +281,7 @@ func TestUpdateFollows(t *testing.T) {
 func TestNodeIDs(t *testing.T) {
 	tests := []struct {
 		name     string
-		setup    func() (RedisDB, error)
+		setup    func() (DB, error)
 		pubkeys  []string
 		expected []graph.ID
 	}{
@@ -328,7 +328,7 @@ func TestNodeIDs(t *testing.T) {
 func TestResolve(t *testing.T) {
 	tests := []struct {
 		name      string
-		setup     func() (RedisDB, error)
+		setup     func() (DB, error)
 		pubkeys   []string
 		onMissing MissingHandler
 		expected  []graph.ID
@@ -379,7 +379,7 @@ func TestResolve(t *testing.T) {
 func TestPubkeys(t *testing.T) {
 	tests := []struct {
 		name     string
-		setup    func() (RedisDB, error)
+		setup    func() (DB, error)
 		nodes    []graph.ID
 		expected []string
 	}{
@@ -424,46 +424,46 @@ func TestPubkeys(t *testing.T) {
 }
 
 func TestInterfaces(t *testing.T) {
-	var _ walks.Walker = RedisDB{}
-	var _ pagerank.VisitCounter = RedisDB{}
-	var _ pagerank.PersonalizedLoader = RedisDB{}
-	//var _ pipe.PubkeyChecker = RedisDB{}
+	var _ walks.Walker = DB{}
+	var _ pagerank.VisitCounter = DB{}
+	var _ pagerank.PersonalizedLoader = DB{}
+	//var _ pipe.PubkeyChecker = DB{}
 }
 
 // ------------------------------------- HELPERS -------------------------------
 
-func Empty() (RedisDB, error) {
-	return RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}, nil
+func Empty() (DB, error) {
+	return DB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}, nil
 }
 
-func OneNode() (RedisDB, error) {
-	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+func OneNode() (DB, error) {
+	db := DB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	if _, err := db.AddNode(ctx, "0"); err != nil {
 		db.flushAll()
-		return RedisDB{}, err
+		return DB{}, err
 	}
 
 	return db, nil
 }
 
-func Simple() (RedisDB, error) {
-	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+func Simple() (DB, error) {
+	db := DB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	for _, pk := range []string{"0", "1", "2"} {
 		if _, err := db.AddNode(ctx, pk); err != nil {
 			db.flushAll()
-			return RedisDB{}, err
+			return DB{}, err
 		}
 	}
 
 	// 0 ---> 1
 	if err := db.Client.SAdd(ctx, follows("0"), "1").Err(); err != nil {
 		db.flushAll()
-		return RedisDB{}, err
+		return DB{}, err
 	}
 
 	if err := db.Client.SAdd(ctx, followers("1"), "0").Err(); err != nil {
 		db.flushAll()
-		return RedisDB{}, err
+		return DB{}, err
 	}
 
 	return db, nil

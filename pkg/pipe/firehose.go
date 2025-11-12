@@ -138,10 +138,10 @@ type PubkeyGate interface {
 // The assumption is that keys can't be removed from the database.
 type ExistenceGate struct {
 	exists   map[string]struct{}
-	fallback regraph.RedisDB
+	fallback regraph.DB
 }
 
-func NewExistenceGate(fallback regraph.RedisDB) *ExistenceGate {
+func NewExistenceGate(fallback regraph.DB) *ExistenceGate {
 	return &ExistenceGate{
 		exists:   make(map[string]struct{}),
 		fallback: fallback,

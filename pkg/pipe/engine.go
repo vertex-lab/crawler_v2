@@ -60,7 +60,7 @@ func Engine(
 	config EngineConfig,
 	events chan *nostr.Event,
 	store *sqlite.Store,
-	db regraph.RedisDB,
+	db regraph.DB,
 ) {
 	graphEvents := make(chan *nostr.Event, config.ChannelCapacity)
 	defer close(graphEvents)
@@ -212,7 +212,7 @@ func Grapher(
 	ctx context.Context,
 	config GrapherConfig,
 	events chan *nostr.Event,
-	db regraph.RedisDB,
+	db regraph.DB,
 ) {
 	log.Println("Grapher: ready")
 	defer log.Println("Grapher: shut down")
@@ -272,7 +272,7 @@ func Grapher(
 }
 
 // Compute the delta from the "p" tags in the follow list.
-func computeDelta(ctx context.Context, db regraph.RedisDB, cache *walks.CachedWalker, event *nostr.Event) (graph.Delta, error) {
+func computeDelta(ctx context.Context, db regraph.DB, cache *walks.CachedWalker, event *nostr.Event) (graph.Delta, error) {
 	author, err := db.NodeByKey(ctx, event.PubKey)
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
@@ -298,7 +298,7 @@ func computeDelta(ctx context.Context, db regraph.RedisDB, cache *walks.CachedWa
 }
 
 // updateWalks uses the delta to update the random walks.
-func updateWalks(ctx context.Context, db regraph.RedisDB, cache *walks.CachedWalker, delta graph.Delta) error {
+func updateWalks(ctx context.Context, db regraph.DB, cache *walks.CachedWalker, delta graph.Delta) error {
 	if delta.Size() == 0 {
 		// nothing to change, stop
 		return nil

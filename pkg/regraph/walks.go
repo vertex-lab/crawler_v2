@@ -33,7 +33,7 @@ var (
 // init the walk store checking the existence of [KeyRWS].
 // If it exists, check its fields for consistency
 // If it doesn't, store [walks.Alpha] and [walks.N]
-func (db RedisDB) init() error {
+func (db DB) init() error {
 	ctx := context.Background()
 	exists, err := db.Client.Exists(ctx, KeyRWS).Result()
 	if err != nil {
@@ -81,7 +81,7 @@ func (db RedisDB) init() error {
 }
 
 // Walks returns the walks associated with the IDs.
-func (db RedisDB) Walks(ctx context.Context, IDs ...walks.ID) ([]walks.Walk, error) {
+func (db DB) Walks(ctx context.Context, IDs ...walks.ID) ([]walks.Walk, error) {
 	switch {
 	case len(IDs) == 0:
 		return nil, nil
@@ -124,7 +124,7 @@ func (db RedisDB) Walks(ctx context.Context, IDs ...walks.ID) ([]walks.Walk, err
 
 // WalksVisiting returns up-to limit walks that visit node.
 // Use limit = -1 to fetch all the walks visiting node.
-func (db RedisDB) WalksVisiting(ctx context.Context, node graph.ID, limit int) ([]walks.Walk, error) {
+func (db DB) WalksVisiting(ctx context.Context, node graph.ID, limit int) ([]walks.Walk, error) {
 	switch {
 	case limit == -1:
 		// return all walks visiting node
@@ -152,7 +152,7 @@ func (db RedisDB) WalksVisiting(ctx context.Context, node graph.ID, limit int) (
 // The walks are distributed evenly among the nodes:
 // - if limit == -1, all walks are returned (use with few nodes)
 // - if limit < len(nodes), no walks are returned
-func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit int) ([]walks.Walk, error) {
+func (db DB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit int) ([]walks.Walk, error) {
 	switch {
 	case limit == -1:
 		// return all walks visiting all nodes
@@ -208,7 +208,7 @@ func (db RedisDB) WalksVisitingAny(ctx context.Context, nodes []graph.ID, limit 
 }
 
 // AddWalks adds all the walks to the database assigning them progressive IDs.
-func (db RedisDB) AddWalks(ctx context.Context, walks ...walks.Walk) error {
+func (db DB) AddWalks(ctx context.Context, walks ...walks.Walk) error {
 	if len(walks) == 0 {
 		return nil
 	}
@@ -243,7 +243,7 @@ func (db RedisDB) AddWalks(ctx context.Context, walks ...walks.Walk) error {
 }
 
 // RemoveWalks removes all the walks from the database.
-func (db RedisDB) RemoveWalks(ctx context.Context, walks ...walks.Walk) error {
+func (db DB) RemoveWalks(ctx context.Context, walks ...walks.Walk) error {
 	if len(walks) == 0 {
 		return nil
 	}
@@ -270,7 +270,7 @@ func (db RedisDB) RemoveWalks(ctx context.Context, walks ...walks.Walk) error {
 }
 
 // ReplaceWalks replaces the old walks with the new ones.
-func (db RedisDB) ReplaceWalks(ctx context.Context, before, after []walks.Walk) error {
+func (db DB) ReplaceWalks(ctx context.Context, before, after []walks.Walk) error {
 	if err := validateReplacement(before, after); err != nil {
 		return err
 	}
@@ -345,7 +345,7 @@ func validateReplacement(old, new []walks.Walk) error {
 }
 
 // TotalVisits returns the total number of visits, which is the sum of the lengths of all walks.
-func (db RedisDB) TotalVisits(ctx context.Context) (int, error) {
+func (db DB) TotalVisits(ctx context.Context) (int, error) {
 	total, err := db.Client.HGet(ctx, KeyRWS, KeyTotalVisits).Result()
 	if err != nil {
 		return -1, fmt.Errorf("failed to get the total number of visits: %w", err)
@@ -360,7 +360,7 @@ func (db RedisDB) TotalVisits(ctx context.Context) (int, error) {
 }
 
 // TotalWalks returns the total number of walks.
-func (db RedisDB) TotalWalks(ctx context.Context) (int, error) {
+func (db DB) TotalWalks(ctx context.Context) (int, error) {
 	total, err := db.Client.HLen(ctx, KeyWalks).Result()
 	if err != nil {
 		return -1, fmt.Errorf("failed to get the total number of walks: %w", err)
@@ -371,14 +371,14 @@ func (db RedisDB) TotalWalks(ctx context.Context) (int, error) {
 // Visits returns the number of times each specified node was visited during the walks.
 // The returned slice contains counts in the same order as the input nodes.
 // If a node is not found, it returns 0 visits.
-func (db RedisDB) Visits(ctx context.Context, nodes ...graph.ID) ([]int, error) {
+func (db DB) Visits(ctx context.Context, nodes ...graph.ID) ([]int, error) {
 	return db.counts(ctx, walksVisiting, nodes...)
 }
 
 // ScanWalks to return a batch of walks of size roughly proportional to limit.
 // Limit controls how much "work" is invested in fetching the batch, hence it's not precise.
 // Learn more about scan: https://redis.io/docs/latest/commands/hscan/
-func (db RedisDB) ScanWalks(ctx context.Context, cursor uint64, limit int) ([]walks.Walk, uint64, error) {
+func (db DB) ScanWalks(ctx context.Context, cursor uint64, limit int) ([]walks.Walk, uint64, error) {
 	keyVals, cursor, err := db.Client.HScan(ctx, KeyWalks, cursor, "*", int64(limit)).Result()
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to scan for walks: %w", err)

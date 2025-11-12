@@ -20,7 +20,7 @@ var (
 )
 
 // flushAll deletes all the keys of all existing databases. This command never fails.
-func (r RedisDB) flushAll() {
+func (r DB) flushAll() {
 	r.Client.FlushAll(context.Background())
 }
 

@@ -15,7 +15,7 @@ import (
 func TestInit(t *testing.T) {
 	tests := []struct {
 		name  string
-		setup func() (RedisDB, error)
+		setup func() (DB, error)
 		err   error
 	}{
 		{name: "seed", setup: Empty},
@@ -41,7 +41,7 @@ func TestInit(t *testing.T) {
 func TestWalksVisiting(t *testing.T) {
 	tests := []struct {
 		name          string
-		setup         func() (RedisDB, error)
+		setup         func() (DB, error)
 		limit         int
 		expectedWalks int // the number of [defaultWalk] returned
 	}{
@@ -95,7 +95,7 @@ func TestWalksVisiting(t *testing.T) {
 func TestWalksVisitingAny(t *testing.T) {
 	tests := []struct {
 		name          string
-		setup         func() (RedisDB, error)
+		setup         func() (DB, error)
 		limit         int
 		expectedWalks int // the number of [defaultWalk] returned
 	}{
@@ -356,16 +356,16 @@ func TestValidateReplacement(t *testing.T) {
 
 var defaultWalk = walks.Walk{Path: []graph.ID{"0", "1"}}
 
-func SomeWalks(n int) func() (RedisDB, error) {
-	return func() (RedisDB, error) {
-		db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+func SomeWalks(n int) func() (DB, error) {
+	return func() (DB, error) {
+		db := DB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 		if err := db.Client.HSet(ctx, KeyRWS, KeyAlpha, walks.Alpha, KeyWalksPerNode, walks.N).Err(); err != nil {
-			return RedisDB{}, err
+			return DB{}, err
 		}
 
 		for range n {
 			if err := db.AddWalks(ctx, defaultWalk); err != nil {
-				return RedisDB{}, err
+				return DB{}, err
 			}
 		}
 
@@ -373,10 +373,10 @@ func SomeWalks(n int) func() (RedisDB, error) {
 	}
 }
 
-func Invalid() (RedisDB, error) {
-	db := RedisDB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
+func Invalid() (DB, error) {
+	db := DB{Client: redis.NewClient(&redis.Options{Addr: testAddress})}
 	if err := db.Client.HSet(ctx, KeyRWS, KeyAlpha, 69, KeyWalksPerNode, 420).Err(); err != nil {
-		return RedisDB{}, err
+		return DB{}, err
 	}
 	return db, nil
 }
