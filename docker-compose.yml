@@ -1,0 +1,57 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: crawler-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler-app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - REDIS_ADDRESS=redis:6379
+      - SQLITE_URL=/data/store.sqlite
+    volumes:
+      - sqlite-data:/data
+    command: ["/app/crawl"]
+
+  # Use this service to sync Redis from SQLite (run manually)
+  sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler-sync
+    profiles:
+      - tools
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - REDIS_ADDRESS=redis:6379
+      - SQLITE_URL=/data/store.sqlite
+    volumes:
+      - sqlite-data:/data
+    command: ["/app/sync"]
+
+volumes:
+  redis-data:
+  sqlite-data:
