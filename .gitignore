@@ -5,6 +5,7 @@
 **/*.env
 
 # ignore all sqlite files
+**/*.db
 **/*.sqlite
 **/*-shm
 **/*-wal
