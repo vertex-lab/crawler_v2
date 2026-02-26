@@ -32,7 +32,7 @@ func TestGenerate(t *testing.T) {
 	t.Run("average lenght", func(t *testing.T) {
 		maxError := 0.1
 		Alpha = 0.85
-		N = 10000
+		N = 100_000
 
 		walker := NewCyclicWalker(1000)
 		expectedLenght := (1.0 / (1.0 - Alpha))

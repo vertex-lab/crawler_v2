@@ -183,7 +183,7 @@ func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 	}
 
 	if len(toRemove) != N {
-		slog.Error("walks.ToRemove", "error", ErrInvalidRemoval, "to-remove", len(toRemove))
+		slog.Warn("walks.ToRemove", "error", ErrInvalidRemoval, "to-remove", len(toRemove))
 	}
 	return toRemove, nil
 }
@@ -192,8 +192,9 @@ func ToRemove(node graph.ID, walks []Walk) ([]Walk, error) {
 // In particular, it corrects invalid steps and resamples in order to maintain the correct distribution.
 func ToUpdate(ctx context.Context, walker Walker, delta graph.Delta, walks []Walk) (old, new []Walk, err error) {
 	resampleProbability := resampleProbability(delta)
-	old = make([]Walk, 0, expectedUpdates(walks, delta))
-	new = make([]Walk, 0, expectedUpdates(walks, delta))
+	size := expectedUpdates(walks, delta)
+	old = make([]Walk, 0, size)
+	new = make([]Walk, 0, size)
 
 	for _, walk := range walks {
 		pos := walk.Index(delta.Node)
