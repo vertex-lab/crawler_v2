@@ -52,7 +52,6 @@ func main() {
 	store, err := store.New(
 		config.SQLiteURL,
 		sqlite.WithEventPolicy(pipe.EventTooBig),
-		sqlite.WithBusyTimeout(5*time.Second),
 	)
 	if err != nil {
 		panic(err)
