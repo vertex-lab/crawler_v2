@@ -5,6 +5,7 @@ go 1.24.1
 toolchain go1.24.3
 
 require (
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nbd-wtf/go-nostr v0.52.0
