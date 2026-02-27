@@ -2,10 +2,10 @@ package relays
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 
+	"github.com/goccy/go-json"
 	ws "github.com/gorilla/websocket"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
@@ -99,7 +99,7 @@ func (r *Relay) write() {
 			return
 
 		case request := <-r.requests:
-			bytes, err := json.Marshal(request)
+			bytes, err := request.MarshalJSON()
 			if err != nil {
 				slog.Error("failed to marshal request", "error", err)
 				return
