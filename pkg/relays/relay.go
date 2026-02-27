@@ -2,12 +2,17 @@ package relays
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
 	ws "github.com/gorilla/websocket"
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
+	"github.com/vertex-lab/crawler_v2/pkg/relays/subscription"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
 )
 
@@ -18,6 +23,12 @@ const (
 	maxMessageSize = 500_000 // 0.5MB
 )
 
+var (
+	ErrRelayClosed        = errors.New("relay is closed")
+	ErrSendFailed         = errors.New("failed to send message, channel is full")
+	ErrSubscriptionClosed = errors.New("subscription was closed")
+)
+
 // Relay is a read-only representation of a Nostr relay.
 // Create one with NewRelay, then call Connect to establish the connection, and Disconnect to close it.
 type Relay struct {
@@ -25,10 +36,12 @@ type Relay struct {
 	conn     *ws.Conn
 	requests chan Request
 
+	subs *subscription.Manager
 	auth *auth.Handler
 	ping *watchdog.T
 
-	done chan struct{}
+	isClosing atomic.Bool
+	done      chan struct{}
 }
 
 // NewRelay returns an unconnected Relay.
@@ -42,6 +55,7 @@ func NewRelay(url string, sk string) (*Relay, error) {
 	r := &Relay{
 		url:      url,
 		requests: make(chan Request, 1000),
+		subs:     subscription.NewManager(),
 		auth:     auth,
 		ping:     watchdog.New(pongWait, logNoPong(url)),
 		done:     make(chan struct{}),
@@ -65,21 +79,80 @@ func (r *Relay) Connect(ctx context.Context) error {
 
 // Disconnect closes the done channel, signalling the read and write goroutines to stop.
 func (r *Relay) Disconnect() {
-	close(r.done)
+	if r.isClosing.CompareAndSwap(false, true) {
+		close(r.done)
+		r.subs.CloseAll()
+	}
 }
 
-// Write enqueues a raw message to be sent to the relay.
-// Returns false if the relay is disconnected or the write channel is full.
-func (r *Relay) Write(request Request) bool {
+// Query sends a REQ to the relay with the given id and filters.
+// When it receives an EOSE, it returns all previous events and closes the subscription.
+// It returns an error if the context is cancelled or the relay has sent a CLOSED message.
+//
+// It is always recommended to use this method with a context timeout,
+// to avoid bad relays that never sent an EOSE (or CLOSED) to block indefinitely the query.
+func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
+	req := Req{
+		ID:      id,
+		Filters: filters,
+	}
+
+	if err := r.send(req); err != nil {
+		return nil, err
+	}
+
+	sub := r.subs.New(req.ID)
+	events := make([]nostr.Event, 0)
+
+	defer func() {
+		r.send(Close{ID: req.ID})
+		r.subs.Close(req.ID)
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return events, ctx.Err()
+
+		case <-r.done:
+			return events, ErrRelayClosed
+
+		case event := <-sub.Events:
+			events = append(events, event)
+
+		case <-sub.Eose:
+			// drain all buffered events, up to a maximum limit of 1000.
+			// This avoids busy-reading the events channel, which might always contain events
+			// send after the EOSE message has been received, which are likely newly published events.
+			for range 1000 {
+				select {
+				case event := <-sub.Events:
+					events = append(events, event)
+				default:
+					return events, nil
+				}
+			}
+			return events, nil
+
+		case err := <-sub.Closed:
+			return events, fmt.Errorf("%w: %w", ErrSubscriptionClosed, err)
+		}
+	}
+
+}
+
+// Send enqueues a request to be sent to the relay.
+// Returns false if the relay is disconnected or the requests channel is full.
+func (r *Relay) send(request Request) error {
 	select {
 	case r.requests <- request:
-		return true
+		return nil
 
 	case <-r.done:
-		return false
+		return ErrRelayClosed
 
 	default:
-		return false
+		return ErrSendFailed
 	}
 }
 
@@ -160,13 +233,12 @@ func (r *Relay) read() {
 
 		switch label {
 		case "EVENT":
-			event, err := parseEvent(decoder)
+			msg, err := parseEvent(decoder)
 			if err != nil {
 				slog.Error("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
-
-			_ = event
+			r.subs.Route(msg.SubID, msg.Event)
 
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
@@ -174,8 +246,7 @@ func (r *Relay) read() {
 				slog.Error("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
-
-			_ = closed
+			r.subs.ForceClose(closed.ID, closed.Message)
 
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
@@ -183,8 +254,7 @@ func (r *Relay) read() {
 				slog.Error("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
-
-			_ = eose
+			r.subs.EOSE(eose.ID)
 
 		case "AUTH":
 			if r.auth == nil {
@@ -198,22 +268,18 @@ func (r *Relay) read() {
 				continue
 			}
 
+			// after receiving the challenge we immediately auth
 			r.auth.SetChallenge(auth.Challenge)
 			response, err := r.auth.Response()
 			if err != nil {
 				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
 				continue
 			}
-			r.Write(response)
+			r.send(response)
 
 		case "OK":
-			ok, err := parseOK(decoder)
-			if err != nil {
-				slog.Error("failed to parse OK", "relay", r.url, "error", err)
-				continue
-			}
-
-			_ = ok
+			// this is in response to our AUTH message.
+			// We don't need to do anything with it yet.
 
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
