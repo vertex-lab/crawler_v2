@@ -10,6 +10,7 @@ import (
 // Call Arm and Disarm to start and stop the timer respectively.
 type T struct {
 	mu        sync.Mutex
+	isArmed   bool
 	timer     *time.Timer
 	duration  time.Duration
 	onTimeout func()
@@ -22,16 +23,22 @@ func New(duration time.Duration, onTimeout func()) *T {
 	}
 }
 
-// Arm starts the watchdog timer. If the timer is already running from a
-// previous Arm call, it is stopped and restarted.
+// Arm starts the watchdog timer.
+// If the timer is already running, Arm is a no-op.
 func (w *T) Arm() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.timer != nil {
-		w.timer.Stop()
+	if w.isArmed {
+		return
 	}
-	w.timer = time.AfterFunc(w.duration, w.onTimeout)
+	w.isArmed = true
+	w.timer = time.AfterFunc(w.duration, func() {
+		w.mu.Lock()
+		w.isArmed = false
+		w.mu.Unlock()
+		w.onTimeout()
+	})
 }
 
 // Disarm stops the watchdog timer, cancelling the pending timeout.
@@ -40,6 +47,7 @@ func (w *T) Disarm() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	w.isArmed = false
 	if w.timer != nil {
 		w.timer.Stop()
 	}
