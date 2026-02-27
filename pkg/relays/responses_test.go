@@ -52,7 +52,8 @@ func TestParseLabel(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			label, err := parseLabel(json.NewDecoder(strings.NewReader(test.input)))
+			d := json.NewDecoder(strings.NewReader(test.input))
+			label, err := parseLabel(d)
 			if test.isValid {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -73,13 +74,13 @@ func TestParseEvent(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *Event
+		expected Event
 		isValid  bool
 	}{
 		{
 			name:  "valid event",
 			input: `["EVENT","sub1",{"id":"aabbcc","pubkey":"deadbeef","created_at":1700000000,"kind":1,"tags":[],"content":"hello","sig":"cafebabe"}]`,
-			expected: &Event{
+			expected: Event{
 				SubID: "sub1",
 				Event: nostr.Event{
 					ID:        "aabbcc",
@@ -96,7 +97,7 @@ func TestParseEvent(t *testing.T) {
 		{
 			name:  "empty subscription ID",
 			input: `["EVENT","",{"id":"aabbcc","pubkey":"deadbeef","created_at":1700000000,"kind":1,"tags":[],"content":"","sig":"cafebabe"}]`,
-			expected: &Event{
+			expected: Event{
 				SubID: "",
 				Event: nostr.Event{
 					ID:        "aabbcc",
@@ -125,7 +126,6 @@ func TestParseEvent(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			d := json.NewDecoder(strings.NewReader(test.input))
-
 			label, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("parseLabel failed: %v", err)
@@ -170,19 +170,19 @@ func TestParseClosed(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *Closed
+		expected Closed
 		isValid  bool
 	}{
 		{
 			name:     "valid closed",
 			input:    `["CLOSED","sub1","error: too many subscriptions"]`,
-			expected: &Closed{ID: "sub1", Message: "error: too many subscriptions"},
+			expected: Closed{ID: "sub1", Message: "error: too many subscriptions"},
 			isValid:  true,
 		},
 		{
 			name:     "empty message",
 			input:    `["CLOSED","sub42",""]`,
-			expected: &Closed{ID: "sub42", Message: ""},
+			expected: Closed{ID: "sub42", Message: ""},
 			isValid:  true,
 		},
 		{
@@ -200,7 +200,6 @@ func TestParseClosed(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			d := json.NewDecoder(strings.NewReader(test.input))
-
 			label, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("parseLabel failed: %v", err)
@@ -233,19 +232,19 @@ func TestParseAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *AuthChallenge
+		expected AuthChallenge
 		isValid  bool
 	}{
 		{
 			name:     "valid auth challenge",
 			input:    `["AUTH","challengestring123"]`,
-			expected: &AuthChallenge{Challenge: "challengestring123"},
+			expected: AuthChallenge{Challenge: "challengestring123"},
 			isValid:  true,
 		},
 		{
 			name:     "empty challenge",
 			input:    `["AUTH",""]`,
-			expected: &AuthChallenge{Challenge: ""},
+			expected: AuthChallenge{Challenge: ""},
 			isValid:  true,
 		},
 		{
@@ -263,7 +262,6 @@ func TestParseAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			d := json.NewDecoder(strings.NewReader(test.input))
-
 			label, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("parseLabel failed: %v", err)
@@ -293,25 +291,25 @@ func TestParseOK(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *OK
+		expected OK
 		isValid  bool
 	}{
 		{
 			name:     "accepted with no reason",
 			input:    `["OK","aabbccddeeff",true,""]`,
-			expected: &OK{ID: "aabbccddeeff", Accepted: true, Reason: ""},
+			expected: OK{ID: "aabbccddeeff", Accepted: true, Reason: ""},
 			isValid:  true,
 		},
 		{
 			name:     "rejected with reason",
 			input:    `["OK","aabbccddeeff",false,"error: duplicate event"]`,
-			expected: &OK{ID: "aabbccddeeff", Accepted: false, Reason: "error: duplicate event"},
+			expected: OK{ID: "aabbccddeeff", Accepted: false, Reason: "error: duplicate event"},
 			isValid:  true,
 		},
 		{
 			name:     "rejected with pow reason",
 			input:    `["OK","aabbccddeeff",false,"pow: difficulty 25 is less than 30"]`,
-			expected: &OK{ID: "aabbccddeeff", Accepted: false, Reason: "pow: difficulty 25 is less than 30"},
+			expected: OK{ID: "aabbccddeeff", Accepted: false, Reason: "pow: difficulty 25 is less than 30"},
 			isValid:  true,
 		},
 		{
@@ -339,7 +337,6 @@ func TestParseOK(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			d := json.NewDecoder(strings.NewReader(test.input))
-
 			label, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("parseLabel failed: %v", err)
@@ -375,19 +372,19 @@ func TestParseNotice(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *Notice
+		expected Notice
 		isValid  bool
 	}{
 		{
 			name:     "valid notice",
 			input:    `["NOTICE","this is a notice from the relay"]`,
-			expected: &Notice{Message: "this is a notice from the relay"},
+			expected: Notice{Message: "this is a notice from the relay"},
 			isValid:  true,
 		},
 		{
 			name:     "empty message",
 			input:    `["NOTICE",""]`,
-			expected: &Notice{Message: ""},
+			expected: Notice{Message: ""},
 			isValid:  true,
 		},
 		{
@@ -405,7 +402,6 @@ func TestParseNotice(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			d := json.NewDecoder(strings.NewReader(test.input))
-
 			label, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("parseLabel failed: %v", err)
