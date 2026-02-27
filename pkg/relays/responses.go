@@ -65,6 +65,16 @@ func parseLabel(d *json.Decoder) (string, error) {
 	return label, nil
 }
 
+// parseEOSE decodes a ["EOSE", <subscriptionID>, <message>] message from the relay.
+// parseLabel must be called first to consume the opening bracket and label.
+func parseEOSE(d *json.Decoder) (EOSE, error) {
+	var e EOSE
+	if err := d.Decode(&e.ID); err != nil {
+		return EOSE{}, fmt.Errorf("failed to decode subscription ID: %w", err)
+	}
+	return e, nil
+}
+
 // parseEvent decodes a ["EVENT", <subscriptionID>, <event>] message from the relay.
 // parseLabel must be called first to consume the opening bracket and label.
 func parseEvent(d *json.Decoder) (Event, error) {

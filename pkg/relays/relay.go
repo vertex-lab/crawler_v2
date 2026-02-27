@@ -83,7 +83,7 @@ func (r *Relay) Write(request Request) bool {
 	}
 }
 
-// write reads from writeCh and forwards each message to the websocket connection.
+// write reads from the requests channel and forwards each message to the websocket connection.
 // When done is closed it sends a clean close frame and shuts down the connection.
 func (r *Relay) write() {
 	ticker := time.NewTicker(pingPeriod)
@@ -141,7 +141,7 @@ func (r *Relay) read() {
 		msgType, reader, err := r.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				slog.Error("unexpected close error from relay", "error", err, "relay", r.url)
+				slog.Error("unexpected close error from relay", "relay", r.url, "error", err)
 			}
 			return
 		}
@@ -154,7 +154,7 @@ func (r *Relay) read() {
 		decoder := json.NewDecoder(reader)
 		label, err := parseLabel(decoder)
 		if err != nil {
-			slog.Error("failed to parse label", "error", err, "relay", r.url)
+			slog.Error("failed to parse label", "relay", r.url, "error", err)
 			continue
 		}
 
@@ -162,7 +162,7 @@ func (r *Relay) read() {
 		case "EVENT":
 			event, err := parseEvent(decoder)
 			if err != nil {
-				slog.Error("failed to parse event", "error", err, "relay", r.url)
+				slog.Error("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
 
@@ -171,25 +171,45 @@ func (r *Relay) read() {
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
 			if err != nil {
-				slog.Error("failed to parse closed", "error", err, "relay", r.url)
+				slog.Error("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
 
 			_ = closed
 
-		case "AUTH":
-			auth, err := parseAuth(decoder)
+		case "EOSE":
+			eose, err := parseEOSE(decoder)
 			if err != nil {
-				slog.Error("failed to parse auth", "error", err, "relay", r.url)
+				slog.Error("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
 
-			_ = auth
+			_ = eose
+
+		case "AUTH":
+			if r.auth == nil {
+				// auth handler not configured, skip
+				continue
+			}
+
+			auth, err := parseAuth(decoder)
+			if err != nil {
+				slog.Error("failed to parse auth", "relay", r.url, "error", err)
+				continue
+			}
+
+			r.auth.SetChallenge(auth.Challenge)
+			response, err := r.auth.Response()
+			if err != nil {
+				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
+				continue
+			}
+			r.Write(response)
 
 		case "OK":
 			ok, err := parseOK(decoder)
 			if err != nil {
-				slog.Error("failed to parse OK", "error", err, "relay", r.url)
+				slog.Error("failed to parse OK", "relay", r.url, "error", err)
 				continue
 			}
 
@@ -198,13 +218,13 @@ func (r *Relay) read() {
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
 			if err != nil {
-				slog.Error("failed to parse notice", "error", err, "relay", r.url)
+				slog.Error("failed to parse notice", "relay", r.url, "error", err)
 				continue
 			}
 			slog.Info("received notice message", "relay", r.url, "message", notice.Message)
 
 		default:
-			slog.Warn("received unknown message", "label", label, "relay", r.url)
+			slog.Debug("received unknown message", "relay", r.url, "label", label)
 		}
 		// messages are intentionally discarded for now
 	}

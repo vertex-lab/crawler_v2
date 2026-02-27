@@ -40,18 +40,19 @@ func NewHandler(url string, sk string) (*Handler, error) {
 	return &Handler{url: url, sk: sk}, nil
 }
 
+// SetChallenge sets the challenge for the handler.
 func (h *Handler) SetChallenge(challenge string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.challenge = challenge
 }
 
-func (h *Handler) MakeRequest() (nostr.Event, error) {
+func (h *Handler) Response() (nostr.Event, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if h.challenge == "" {
-		return nostr.Event{}, fmt.Errorf("MakeRequest: %w", ErrNoChallenge)
+		return nostr.Event{}, fmt.Errorf("Response: %w", ErrNoChallenge)
 	}
 
 	event := nostr.Event{
@@ -64,7 +65,7 @@ func (h *Handler) MakeRequest() (nostr.Event, error) {
 	}
 
 	if err := event.Sign(h.sk); err != nil {
-		return nostr.Event{}, fmt.Errorf("MakeRequest: %w", err)
+		return nostr.Event{}, fmt.Errorf("Response: %w", err)
 	}
 	return event, nil
 }

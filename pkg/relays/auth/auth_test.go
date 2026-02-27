@@ -70,7 +70,7 @@ func TestNewHandler(t *testing.T) {
 	}
 }
 
-func TestMakeRequest(t *testing.T) {
+func TestResponse(t *testing.T) {
 	const relayURL = "wss://relay.example.com"
 
 	tests := []struct {
@@ -101,9 +101,9 @@ func TestMakeRequest(t *testing.T) {
 				h.SetChallenge(test.challenge)
 			}
 
-			event, err := h.MakeRequest()
+			event, err := h.Response()
 			if !errors.Is(err, test.err) {
-				t.Fatalf("MakeRequest(): got error %v, want %v", err, test.err)
+				t.Fatalf("Response(): got error %v, want %v", err, test.err)
 			}
 			if err != nil {
 				return

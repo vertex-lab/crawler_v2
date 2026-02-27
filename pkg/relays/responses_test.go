@@ -70,6 +70,60 @@ func TestParseLabel(t *testing.T) {
 	}
 }
 
+func TestParseEOSE(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected EOSE
+		isValid  bool
+	}{
+		{
+			name:     "valid EOSE",
+			input:    `["EOSE","sub1"]`,
+			expected: EOSE{ID: "sub1"},
+			isValid:  true,
+		},
+		{
+			name:     "empty id",
+			input:    `["EOSE",""]`,
+			expected: EOSE{},
+			isValid:  true,
+		},
+		{
+			name:    "missing id",
+			input:   `["EOSE"]`,
+			isValid: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			d := json.NewDecoder(strings.NewReader(test.input))
+			label, err := parseLabel(d)
+			if err != nil {
+				t.Fatalf("parseLabel failed: %v", err)
+			}
+			if label != "EOSE" {
+				t.Fatalf("expected label %q, got %q", "EOSE", label)
+			}
+
+			got, err := parseEOSE(d)
+			if test.isValid {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got.ID != test.expected.ID {
+					t.Errorf("ID: expected %q, got %q", test.expected.ID, got.ID)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("expected error, got %+v", got)
+				}
+			}
+		})
+	}
+}
+
 func TestParseEvent(t *testing.T) {
 	tests := []struct {
 		name     string

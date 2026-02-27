@@ -33,12 +33,12 @@ func (c Close) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"CLOSE", c.ID})
 }
 
-// AuthRequest represents a ["AUTH", <event>] message sent to a relay
+// Auth represents a ["AUTH", <event>] message sent to a relay
 // to authenticate via NIP-42.
-type AuthRequest struct {
+type Auth struct {
 	Event nostr.Event
 }
 
-func (m AuthRequest) MarshalJSON() ([]byte, error) {
+func (m Auth) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"AUTH", m.Event})
 }
