@@ -18,10 +18,11 @@ const (
 
 // Relay maintains a gorilla-websocket connection to a single Nostr relay.
 type Relay struct {
-	url          string
-	conn         *ws.Conn
-	writeCh      chan []byte
-	pongWatchdog *watchdog.T
+	url     string
+	conn    *ws.Conn
+	writeCh chan []byte
+
+	ping *watchdog.T
 
 	done chan struct{}
 }
@@ -30,10 +31,10 @@ type Relay struct {
 // Call Connect to establish the connection, and Disconnect to close it.
 func NewRelay(url string) *Relay {
 	r := &Relay{
-		url:          url,
-		writeCh:      make(chan []byte, 1000),
-		pongWatchdog: watchdog.New(pongWait, logNoPong(url)),
-		done:         make(chan struct{}),
+		url:     url,
+		writeCh: make(chan []byte, 1000),
+		ping:    watchdog.New(pongWait, logNoPong(url)),
+		done:    make(chan struct{}),
 	}
 	return r
 }
@@ -102,7 +103,7 @@ func (r *Relay) write() {
 				}
 				return
 			}
-			r.pongWatchdog.Arm()
+			r.ping.Arm()
 		}
 	}
 }
@@ -110,7 +111,7 @@ func (r *Relay) write() {
 // read consumes incoming messages from the websocket connection.
 func (r *Relay) read() {
 	r.conn.SetReadLimit(maxMessageSize)
-	r.conn.SetPongHandler(func(_ string) error { r.pongWatchdog.Disarm(); return nil })
+	r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
 
 	for {
 		select {
