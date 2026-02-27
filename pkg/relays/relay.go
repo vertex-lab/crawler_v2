@@ -2,10 +2,12 @@ package relays
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
 	ws "github.com/gorilla/websocket"
+	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
 )
 
@@ -16,12 +18,14 @@ const (
 	maxMessageSize = 500_000 // 0.5MB
 )
 
-// Relay maintains a gorilla-websocket connection to a single Nostr relay.
+// Relay is a read-only representation of a Nostr relay.
+// Create one with NewRelay, then call Connect to establish the connection, and Disconnect to close it.
 type Relay struct {
-	url     string
-	conn    *ws.Conn
-	writeCh chan []byte
+	url      string
+	conn     *ws.Conn
+	requests chan Request
 
+	auth *auth.Handler
 	ping *watchdog.T
 
 	done chan struct{}
@@ -29,14 +33,20 @@ type Relay struct {
 
 // NewRelay returns an unconnected Relay.
 // Call Connect to establish the connection, and Disconnect to close it.
-func NewRelay(url string) *Relay {
-	r := &Relay{
-		url:     url,
-		writeCh: make(chan []byte, 1000),
-		ping:    watchdog.New(pongWait, logNoPong(url)),
-		done:    make(chan struct{}),
+func NewRelay(url string, sk string) (*Relay, error) {
+	auth, err := auth.NewHandler(url, sk)
+	if err != nil {
+		return nil, err
 	}
-	return r
+
+	r := &Relay{
+		url:      url,
+		requests: make(chan Request, 1000),
+		auth:     auth,
+		ping:     watchdog.New(pongWait, logNoPong(url)),
+		done:     make(chan struct{}),
+	}
+	return r, nil
 }
 
 // Connect dials the relay and starts the read and write goroutines.
@@ -60,9 +70,9 @@ func (r *Relay) Disconnect() {
 
 // Write enqueues a raw message to be sent to the relay.
 // Returns false if the relay is disconnected or the write channel is full.
-func (r *Relay) Write(msg []byte) bool {
+func (r *Relay) Write(request Request) bool {
 	select {
-	case r.writeCh <- msg:
+	case r.requests <- request:
 		return true
 
 	case <-r.done:
@@ -88,8 +98,14 @@ func (r *Relay) write() {
 			r.writeClose()
 			return
 
-		case msg := <-r.writeCh:
-			if err := r.writeMessage(msg); err != nil {
+		case request := <-r.requests:
+			bytes, err := json.Marshal(request)
+			if err != nil {
+				slog.Error("failed to marshal request", "error", err)
+				return
+			}
+
+			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
 					slog.Error("unexpected error when attemping to write", "error", err)
 				}
@@ -122,11 +138,74 @@ func (r *Relay) read() {
 			// proceed
 		}
 
-		_, _, err := r.conn.ReadMessage()
+		msgType, reader, err := r.conn.NextReader()
 		if err != nil {
+			if isUnexpectedClose(err) {
+				slog.Error("unexpected close error from relay", "error", err, "relay", r.url)
+			}
 			return
 		}
 
+		if msgType != ws.TextMessage {
+			slog.Warn("received binary message", "relay", r.url)
+			continue
+		}
+
+		decoder := json.NewDecoder(reader)
+		label, err := parseLabel(decoder)
+		if err != nil {
+			slog.Error("failed to parse label", "error", err, "relay", r.url)
+			continue
+		}
+
+		switch label {
+		case "EVENT":
+			event, err := parseEvent(decoder)
+			if err != nil {
+				slog.Error("failed to parse event", "error", err, "relay", r.url)
+				continue
+			}
+
+			_ = event
+
+		case "CLOSED":
+			closed, err := parseClosed(decoder)
+			if err != nil {
+				slog.Error("failed to parse closed", "error", err, "relay", r.url)
+				continue
+			}
+
+			_ = closed
+
+		case "AUTH":
+			auth, err := parseAuth(decoder)
+			if err != nil {
+				slog.Error("failed to parse auth", "error", err, "relay", r.url)
+				continue
+			}
+
+			_ = auth
+
+		case "OK":
+			ok, err := parseOK(decoder)
+			if err != nil {
+				slog.Error("failed to parse OK", "error", err, "relay", r.url)
+				continue
+			}
+
+			_ = ok
+
+		case "NOTICE":
+			notice, err := parseNotice(decoder)
+			if err != nil {
+				slog.Error("failed to parse notice", "error", err, "relay", r.url)
+				continue
+			}
+			slog.Info("received notice message", "relay", r.url, "message", notice.Message)
+
+		default:
+			slog.Warn("received unknown message", "label", label, "relay", r.url)
+		}
 		// messages are intentionally discarded for now
 	}
 }
