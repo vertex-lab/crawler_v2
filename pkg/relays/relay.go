@@ -1,10 +1,12 @@
 package relays
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -16,80 +18,88 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
 )
 
-const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = 45 * time.Second
-	maxMessageSize = 500_000 // 0.5MB
-)
-
 var (
-	ErrRelayClosed        = errors.New("relay is closed")
-	ErrSendFailed         = errors.New("failed to send message, channel is full")
-	ErrSubscriptionClosed = errors.New("subscription was closed")
+	ErrAlreadyConnected    = errors.New("relay is already connected")
+	ErrAlreadyDisconnected = errors.New("relay is already disconnected")
+	ErrRelayClosed         = errors.New("relay is closed")
+	ErrSendFailed          = errors.New("failed to send message, channel is full")
+	ErrSubscriptionClosed  = errors.New("subscription was closed")
 )
 
 // Relay is a read-only representation of a Nostr relay.
-// Create one with NewRelay, then call Connect to establish the connection, and Disconnect to close it.
+// Create one with New, then call Connect to establish the connection, and Disconnect to close it.
+// Call Query and Subscribe to interact with the relay.
 type Relay struct {
 	url      string
 	conn     *ws.Conn
 	requests chan Request
+	settings settings
 
 	subs *subscription.Manager
 	auth *auth.Handler
 	ping *watchdog.T
 
-	isClosing atomic.Bool
-	done      chan struct{}
+	isConnected atomic.Bool
+	done        chan struct{}
 }
 
-// NewRelay returns an unconnected Relay.
+// New returns an unconnected Relay.
 // Call Connect to establish the connection, and Disconnect to close it.
-func NewRelay(url string, sk string) (*Relay, error) {
-	auth, err := auth.NewHandler(url, sk)
-	if err != nil {
+func New(url string, opts ...Option) (*Relay, error) {
+	if err := ValidateURL(url); err != nil {
 		return nil, err
 	}
 
 	r := &Relay{
 		url:      url,
 		requests: make(chan Request, 1000),
+		settings: newSettings(),
 		subs:     subscription.NewManager(),
-		auth:     auth,
-		ping:     watchdog.New(pongWait, logNoPong(url)),
 		done:     make(chan struct{}),
+	}
+
+	for _, opt := range opts {
+		if err := opt(r); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
 
 // Connect dials the relay and starts the read and write goroutines.
 // The context is used only when connecting to the relay.
+// Multiple calls to Connect return the error [ErrAlreadyConnected].
 func (r *Relay) Connect(ctx context.Context) error {
-	var err error
-	r.conn, _, err = ws.DefaultDialer.DialContext(ctx, r.url, nil)
-	if err != nil {
-		return err
-	}
+	if r.isConnected.CompareAndSwap(false, true) {
+		conn, _, err := ws.DefaultDialer.DialContext(ctx, r.url, nil)
+		if err != nil {
+			return err
+		}
 
-	go r.read()
-	go r.write()
-	return nil
+		r.conn = conn
+		go r.read()
+		go r.write()
+		return nil
+	}
+	return ErrAlreadyConnected
 }
 
 // Disconnect closes the done channel, signalling the read and write goroutines to stop.
-func (r *Relay) Disconnect() {
-	if r.isClosing.CompareAndSwap(false, true) {
+// Multiple calls to Disconnect return the error [ErrAlreadyDisconnected].
+func (r *Relay) Disconnect() error {
+	if r.isConnected.CompareAndSwap(true, false) {
 		close(r.done)
 		r.subs.CloseAll()
+		return nil
 	}
+	return ErrAlreadyDisconnected
 }
 
 // Query sends a REQ to the relay with the given id and filters.
 // When it receives an EOSE, it returns all previous events and closes the subscription.
 // It returns an error if the context is cancelled or the relay has sent a CLOSED message.
 //
-// It is always recommended to use this method with a context timeout,
+// It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never sent an EOSE (or CLOSED) to block indefinitely the query.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
 	req := Req{
@@ -185,10 +195,10 @@ func (r *Relay) send(request Request) error {
 // write reads from the requests channel and forwards each message to the websocket connection.
 // When done is closed it sends a clean close frame and shuts down the connection.
 func (r *Relay) write() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(r.settings.WS.pingPeriod)
 	defer func() {
-		r.conn.Close()
 		ticker.Stop()
+		r.conn.Close()
 	}()
 
 	for {
@@ -218,15 +228,15 @@ func (r *Relay) write() {
 				}
 				return
 			}
-			r.ping.Arm()
+			// r.ping.Arm()
 		}
 	}
 }
 
 // read consumes incoming messages from the websocket connection.
 func (r *Relay) read() {
-	r.conn.SetReadLimit(maxMessageSize)
-	r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
+	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
+	// r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
 
 	for {
 		select {
@@ -322,8 +332,29 @@ func (r *Relay) read() {
 	}
 }
 
+// Compare compares two Relay URLs for sorting.
+func Compare(r1, r2 *Relay) int {
+	return cmp.Compare(r1.url, r2.url)
+}
+
+// ValidateURL validates a Relay URL.
+func ValidateURL(u string) error {
+	if u == "" {
+		return errors.New("empty url")
+	}
+
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "wss" && parsed.Scheme != "ws" {
+		return fmt.Errorf("invalid url scheme: %s", parsed.Scheme)
+	}
+	return nil
+}
+
 func (r *Relay) writeMessage(b []byte) error {
-	r.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	r.conn.SetWriteDeadline(time.Now().Add(r.settings.WS.writeWait))
 	return r.conn.WriteMessage(ws.TextMessage, b)
 }
 
@@ -331,7 +362,7 @@ func (r *Relay) writeClose() error {
 	return r.conn.WriteControl(
 		ws.CloseMessage,
 		ws.FormatCloseMessage(ws.CloseNormalClosure, ""),
-		time.Now().Add(writeWait),
+		time.Now().Add(r.settings.WS.writeWait),
 	)
 }
 
@@ -339,7 +370,7 @@ func (r *Relay) writePing() error {
 	return r.conn.WriteControl(
 		ws.PingMessage,
 		nil,
-		time.Now().Add(writeWait),
+		time.Now().Add(r.settings.WS.writeWait),
 	)
 }
 
@@ -353,6 +384,6 @@ func isUnexpectedClose(err error) bool {
 
 func logNoPong(url string) func() {
 	return func() {
-		slog.Warn("the relay did not respond to a PING", "relay", url, "timeout", pongWait)
+		slog.Warn("the relay did not respond to a PING", "relay", url)
 	}
 }
