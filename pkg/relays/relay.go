@@ -141,6 +141,32 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 	}
 }
 
+// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
+// Callers can read messages using the Subscription.Messages() channel.
+// Callers must close the subscription when done, by calling returned cancel function.
+func (r *Relay) Subscribe(id string, filters nostr.Filters) (sub *subscription.T, cancel func(), err error) {
+	req := Req{
+		ID:      id,
+		Filters: filters,
+	}
+
+	sub, err = r.subs.New(req.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := r.send(req); err != nil {
+		r.subs.Close(req.ID)
+		return nil, nil, err
+	}
+
+	cancel = func() {
+		r.send(Close{ID: req.ID})
+		r.subs.Close(req.ID)
+	}
+	return sub, cancel, nil
+}
+
 // Send enqueues a request to be sent to the relay.
 // Returns an error if the relay is disconnected or the requests channel is full.
 func (r *Relay) send(request Request) error {
