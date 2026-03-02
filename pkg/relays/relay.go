@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -19,11 +19,11 @@ import (
 )
 
 var (
-	ErrAlreadyConnected    = errors.New("relay is already connected")
-	ErrAlreadyDisconnected = errors.New("relay is already disconnected")
-	ErrRelayClosed         = errors.New("relay is closed")
-	ErrSendFailed          = errors.New("failed to send message, channel is full")
-	ErrSubscriptionClosed  = errors.New("subscription was closed")
+	ErrAlreadyConnected   = errors.New("relay is already connected")
+	ErrNotConnected       = errors.New("relay is not connected")
+	ErrDisconnected       = errors.New("relay has been disconnected")
+	ErrSendFailed         = errors.New("failed to send message, channel is full")
+	ErrSubscriptionClosed = errors.New("subscription was closed")
 )
 
 // Relay is a read-only representation of a Nostr relay.
@@ -39,8 +39,9 @@ type Relay struct {
 	auth *auth.Handler
 	ping *watchdog.T
 
-	isConnected atomic.Bool
+	mu          sync.Mutex
 	done        chan struct{}
+	isConnected bool
 }
 
 // New returns an unconnected Relay.
@@ -55,7 +56,6 @@ func New(url string, opts ...Option) (*Relay, error) {
 		requests: make(chan Request, 1000),
 		settings: newSettings(),
 		subs:     subscription.NewManager(),
-		done:     make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -70,29 +70,41 @@ func New(url string, opts ...Option) (*Relay, error) {
 // The context is used only when connecting to the relay.
 // Multiple calls to Connect return the error [ErrAlreadyConnected].
 func (r *Relay) Connect(ctx context.Context) error {
-	if r.isConnected.CompareAndSwap(false, true) {
-		conn, _, err := ws.DefaultDialer.DialContext(ctx, r.url, nil)
-		if err != nil {
-			return err
-		}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-		r.conn = conn
-		go r.read()
-		go r.write()
-		return nil
+	if r.isConnected {
+		return ErrAlreadyConnected
 	}
-	return ErrAlreadyConnected
+
+	conn, _, err := r.settings.WS.dialer.DialContext(ctx, r.url, nil)
+	if err != nil {
+		return err
+	}
+
+	r.isConnected = true
+	r.conn = conn
+	r.done = make(chan struct{})
+
+	go r.read()
+	go r.write()
+	return nil
 }
 
-// Disconnect closes the done channel, signalling the read and write goroutines to stop.
-// Multiple calls to Disconnect return the error [ErrAlreadyDisconnected].
+// Disconnect the relay, signalling the read and write goroutines to stop.
+// Multiple calls to Disconnect return the error [ErrNotConnected].
 func (r *Relay) Disconnect() error {
-	if r.isConnected.CompareAndSwap(true, false) {
-		close(r.done)
-		r.subs.CloseAll()
-		return nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.isConnected {
+		return ErrNotConnected
 	}
-	return ErrAlreadyDisconnected
+
+	r.isConnected = false
+	close(r.done)
+	r.subs.CloseAll()
+	return nil
 }
 
 // Query sends a REQ to the relay with the given id and filters.
@@ -121,7 +133,7 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 	for {
 		select {
 		case <-r.done:
-			return events, ErrRelayClosed
+			return events, ErrDisconnected
 
 		case <-ctx.Done():
 			r.send(Close{ID: req.ID})
@@ -185,7 +197,7 @@ func (r *Relay) send(request Request) error {
 		return nil
 
 	case <-r.done:
-		return ErrRelayClosed
+		return ErrDisconnected
 
 	default:
 		return ErrSendFailed
