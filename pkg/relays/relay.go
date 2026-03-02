@@ -84,10 +84,10 @@ func (r *Relay) Close() {
 
 // Query sends a REQ to the relay with the given id and filters.
 // When it receives an EOSE, it returns all previous events and closes the subscription.
-// It returns an error if the context is cancelled or the relay has sent a CLOSED message.
+// When it receives a CLOSED, it returns the events collected thus far and the closed reason as an error.
 //
 // It is always recommended to use this method with a context timeout (e.g. 10s),
-// to avoid bad relays that never sent an EOSE (or CLOSED) to block indefinitely the query.
+// to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
 	if r.isClosing.Load() {
 		return nil, ErrDisconnected
@@ -144,7 +144,7 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 
 // Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
 // Callers can read messages using the Subscription.Messages() channel.
-// Callers must close the subscription when done, by calling returned cancel function.
+// Callers must close the subscription when done, by calling the returned cancel function.
 func (r *Relay) Subscribe(id string, filters nostr.Filters) (sub *subscription.T, cancel func(), err error) {
 	if r.isClosing.Load() {
 		return nil, nil, ErrDisconnected
