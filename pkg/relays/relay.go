@@ -97,52 +97,52 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 		Filters: filters,
 	}
 
-	if err := r.send(req); err != nil {
+	sub, err := r.subs.New(req.ID)
+	if err != nil {
 		return nil, err
 	}
 
-	sub := r.subs.New(req.ID)
-	events := make([]nostr.Event, 0)
-
-	defer func() {
-		r.send(Close{ID: req.ID})
+	if err := r.send(req); err != nil {
 		r.subs.Close(req.ID)
-	}()
+		return nil, err
+	}
 
+	var events []nostr.Event
 	for {
 		select {
-		case <-ctx.Done():
-			return events, ctx.Err()
-
 		case <-r.done:
 			return events, ErrRelayClosed
 
-		case event := <-sub.Events:
-			events = append(events, event)
+		case <-ctx.Done():
+			r.send(Close{ID: req.ID})
+			r.subs.Close(req.ID)
+			return events, ctx.Err()
 
-		case <-sub.Eose:
-			// drain all buffered events, up to a maximum limit of 1000.
-			// This avoids busy-reading the events channel, which might always contain events
-			// send after the EOSE message has been received, which are likely newly published events.
-			for range 1000 {
-				select {
-				case event := <-sub.Events:
-					events = append(events, event)
-				default:
-					return events, nil
-				}
+		case msg, ok := <-sub.Messages():
+			if !ok {
+				// The channel is closed without a Closed message because it was full.
+				return events, ErrSubscriptionClosed
 			}
-			return events, nil
 
-		case err := <-sub.Closed:
-			return events, fmt.Errorf("%w: %w", ErrSubscriptionClosed, err)
+			switch {
+			case msg.Event != nil:
+				events = append(events, *msg.Event)
+
+			case msg.EOSE:
+				r.send(Close{ID: req.ID})
+				r.subs.Close(req.ID)
+				return events, nil
+
+			case msg.Err != nil:
+				// ForceClose already removed the subscription from the manager.
+				return events, fmt.Errorf("%w: %w", ErrSubscriptionClosed, msg.Err)
+			}
 		}
 	}
-
 }
 
 // Send enqueues a request to be sent to the relay.
-// Returns false if the relay is disconnected or the requests channel is full.
+// Returns an error if the relay is disconnected or the requests channel is full.
 func (r *Relay) send(request Request) error {
 	select {
 	case r.requests <- request:
@@ -238,7 +238,7 @@ func (r *Relay) read() {
 				slog.Error("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
-			r.subs.Route(msg.SubID, msg.Event)
+			r.subs.Route(msg.SubID, &msg.Event)
 
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
