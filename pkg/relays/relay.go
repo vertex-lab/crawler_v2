@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -19,16 +19,13 @@ import (
 )
 
 var (
-	ErrAlreadyConnected   = errors.New("relay is already connected")
-	ErrNotConnected       = errors.New("relay is not connected")
 	ErrDisconnected       = errors.New("relay has been disconnected")
 	ErrSendFailed         = errors.New("failed to send message, channel is full")
 	ErrSubscriptionClosed = errors.New("subscription was closed")
 )
 
 // Relay is a read-only representation of a Nostr relay.
-// Create one with New, then call Connect to establish the connection, and Disconnect to close it.
-// Call Query and Subscribe to interact with the relay.
+// Create one with New, interact with Query or Subscribe, then call Close to close it.
 type Relay struct {
 	url      string
 	conn     *ws.Conn
@@ -39,14 +36,14 @@ type Relay struct {
 	auth *auth.Handler
 	ping *watchdog.T
 
-	mu          sync.Mutex
-	done        chan struct{}
-	isConnected bool
+	isClosing atomic.Bool
+	done      chan struct{}
 }
 
-// New returns an unconnected Relay.
-// Call Connect to establish the connection, and Disconnect to close it.
-func New(url string, opts ...Option) (*Relay, error) {
+// New returns a connected Relay.
+// The context is only used to establish the connection; it does not control the lifetime of the relay.
+// Call relay.Close to close the connection and free resources.
+func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 	if err := ValidateURL(url); err != nil {
 		return nil, err
 	}
@@ -55,7 +52,8 @@ func New(url string, opts ...Option) (*Relay, error) {
 		url:      url,
 		requests: make(chan Request, 1000),
 		settings: newSettings(),
-		subs:     subscription.NewManager(),
+		subs:     subscription.NewManager(1000),
+		done:     make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -63,48 +61,25 @@ func New(url string, opts ...Option) (*Relay, error) {
 			return nil, err
 		}
 	}
-	return r, nil
-}
-
-// Connect dials the relay and starts the read and write goroutines.
-// The context is used only when connecting to the relay.
-// Multiple calls to Connect return the error [ErrAlreadyConnected].
-func (r *Relay) Connect(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.isConnected {
-		return ErrAlreadyConnected
-	}
 
 	conn, _, err := r.settings.WS.dialer.DialContext(ctx, r.url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	r.isConnected = true
 	r.conn = conn
-	r.done = make(chan struct{})
 
 	go r.read()
 	go r.write()
-	return nil
+	return r, nil
 }
 
-// Disconnect the relay, signalling the read and write goroutines to stop.
-// Multiple calls to Disconnect return the error [ErrNotConnected].
-func (r *Relay) Disconnect() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if !r.isConnected {
-		return ErrNotConnected
+// Close disconnects the relay, signalling the read and write goroutines to stop.
+// Multiple calls to Close are a no-op.
+func (r *Relay) Close() {
+	if r.isClosing.CompareAndSwap(false, true) {
+		close(r.done)
+		r.subs.CloseAll()
 	}
-
-	r.isConnected = false
-	close(r.done)
-	r.subs.CloseAll()
-	return nil
 }
 
 // Query sends a REQ to the relay with the given id and filters.
@@ -114,6 +89,10 @@ func (r *Relay) Disconnect() error {
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never sent an EOSE (or CLOSED) to block indefinitely the query.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
+	if r.isClosing.Load() {
+		return nil, ErrDisconnected
+	}
+
 	req := Req{
 		ID:      id,
 		Filters: filters,
@@ -167,6 +146,10 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 // Callers can read messages using the Subscription.Messages() channel.
 // Callers must close the subscription when done, by calling returned cancel function.
 func (r *Relay) Subscribe(id string, filters nostr.Filters) (sub *subscription.T, cancel func(), err error) {
+	if r.isClosing.Load() {
+		return nil, nil, ErrDisconnected
+	}
+
 	req := Req{
 		ID:      id,
 		Filters: filters,
@@ -192,6 +175,10 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (sub *subscription.T
 // Send enqueues a request to be sent to the relay.
 // Returns an error if the relay is disconnected or the requests channel is full.
 func (r *Relay) send(request Request) error {
+	if r.isClosing.Load() {
+		return ErrDisconnected
+	}
+
 	select {
 	case r.requests <- request:
 		return nil
@@ -210,6 +197,7 @@ func (r *Relay) write() {
 	ticker := time.NewTicker(r.settings.WS.pingPeriod)
 	defer func() {
 		ticker.Stop()
+		r.Close()
 		r.conn.Close()
 	}()
 
@@ -247,6 +235,8 @@ func (r *Relay) write() {
 
 // read consumes incoming messages from the websocket connection.
 func (r *Relay) read() {
+	defer r.Close()
+
 	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
 	// r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
 
@@ -323,7 +313,7 @@ func (r *Relay) read() {
 				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
 				continue
 			}
-			r.send(response)
+			r.send(Auth{Event: response})
 
 		case "OK":
 			// this is in response to our AUTH message.
@@ -389,7 +379,6 @@ func (r *Relay) writePing() error {
 func isUnexpectedClose(err error) bool {
 	return ws.IsUnexpectedCloseError(err,
 		ws.CloseNormalClosure,
-		ws.CloseGoingAway,
 		ws.CloseNoStatusReceived,
 		ws.CloseAbnormalClosure)
 }

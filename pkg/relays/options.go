@@ -46,7 +46,7 @@ func WithPingPeriod(pingPeriod time.Duration) Option {
 	}
 }
 
-// / WithMaxMessageSize sets the maximum size (in bytes) of a single incoming websocket message
+// WithMaxMessageSize sets the maximum size (in bytes) of a single incoming websocket message
 // (e.g., a Nostr EVENT or REQ). Messages larger than this will be rejected.
 func WithMaxMessageBytes(s int) Option {
 	return func(r *Relay) error {

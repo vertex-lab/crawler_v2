@@ -43,10 +43,11 @@ type Manager struct {
 	capacity int
 }
 
-func NewManager() *Manager {
+// NewManager creates a new Manager. Each subscription will have a buffer of capacity messages.
+func NewManager(capacity int) *Manager {
 	return &Manager{
 		subs:     make(map[string]*T),
-		capacity: 1000,
+		capacity: capacity,
 	}
 }
 
