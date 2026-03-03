@@ -1,6 +1,7 @@
 package relays
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,6 +19,14 @@ func WithAuthKey(sk string) Option {
 			return err
 		}
 		r.auth = handler
+		return nil
+	}
+}
+
+// WithLogger sets the logger for the relay.
+func WithLogger(l *slog.Logger) Option {
+	return func(r *Relay) error {
+		r.log = l
 		return nil
 	}
 }

@@ -2,7 +2,6 @@ package relays
 
 import (
 	"errors"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -36,7 +35,7 @@ func (s *Subscription) Close() {
 		s.relay.subs.Remove(s.ID)
 		err := s.relay.send(Close{ID: s.ID})
 		if err != nil && !errors.Is(err, ErrDisconnected) {
-			slog.Warn("failed to send close", "relay", s.relay.url, "error", err)
+			s.relay.log.Warn("failed to send close", "relay", s.relay.url, "error", err)
 		}
 		close(s.done)
 	}

@@ -35,6 +35,7 @@ type Relay struct {
 
 	subs *subRouter
 	auth *auth.Handler
+	log  *slog.Logger
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -191,20 +192,20 @@ func (r *Relay) read() {
 		msgType, reader, err := r.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				slog.Error("unexpected close error from relay", "relay", r.url, "error", err)
+				r.log.Error("unexpected close error from relay", "relay", r.url, "error", err)
 			}
 			return
 		}
 
 		if msgType != ws.TextMessage {
-			slog.Warn("received binary message", "relay", r.url)
+			r.log.Warn("received binary message", "relay", r.url)
 			continue
 		}
 
 		decoder := json.NewDecoder(reader)
 		label, err := parseLabel(decoder)
 		if err != nil {
-			slog.Error("failed to parse label", "relay", r.url, "error", err)
+			r.log.Error("failed to parse label", "relay", r.url, "error", err)
 			continue
 		}
 
@@ -212,23 +213,23 @@ func (r *Relay) read() {
 		case "EVENT":
 			msg, err := parseEvent(decoder)
 			if err != nil {
-				slog.Error("failed to parse event", "relay", r.url, "error", err)
+				r.log.Error("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
 
 			if err := verify(&msg.Event); err != nil {
-				slog.Error("failed to verify event", "relay", r.url, "error", err)
+				r.log.Error("failed to verify event", "relay", r.url, "error", err)
 				continue
 			}
 
 			if err := r.subs.Route(msg.SubID, &msg.Event); err != nil {
-				slog.Error("failed to route event", "relay", r.url, "error", err)
+				r.log.Error("failed to route event", "relay", r.url, "error", err)
 			}
 
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
 			if err != nil {
-				slog.Error("failed to parse closed", "relay", r.url, "error", err)
+				r.log.Error("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalClosed(closed.ID, closed.Message)
@@ -236,7 +237,7 @@ func (r *Relay) read() {
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
 			if err != nil {
-				slog.Error("failed to parse eose", "relay", r.url, "error", err)
+				r.log.Error("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalEOSE(eose.ID)
@@ -249,7 +250,7 @@ func (r *Relay) read() {
 
 			auth, err := parseAuth(decoder)
 			if err != nil {
-				slog.Error("failed to parse auth", "relay", r.url, "error", err)
+				r.log.Error("failed to parse auth", "relay", r.url, "error", err)
 				continue
 			}
 
@@ -257,13 +258,13 @@ func (r *Relay) read() {
 			r.auth.SetChallenge(auth.Challenge)
 			response, err := r.auth.Response()
 			if err != nil {
-				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
+				r.log.Error("failed to generate auth response", "relay", r.url, "error", err)
 				continue
 			}
 
 			err = r.send(Auth{Event: response})
 			if err != nil && !errors.Is(err, ErrDisconnected) {
-				slog.Warn("failed to send auth response", "relay", r.url, "error", err)
+				r.log.Warn("failed to send auth response", "relay", r.url, "error", err)
 			}
 
 		case "OK":
@@ -273,13 +274,13 @@ func (r *Relay) read() {
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
 			if err != nil {
-				slog.Error("failed to parse notice", "relay", r.url, "error", err)
+				r.log.Error("failed to parse notice", "relay", r.url, "error", err)
 				continue
 			}
-			slog.Info("received notice message", "relay", r.url, "message", notice.Message)
+			r.log.Info("received notice message", "relay", r.url, "message", notice.Message)
 
 		default:
-			slog.Debug("received unknown message", "relay", r.url, "label", label)
+			r.log.Debug("received unknown message", "relay", r.url, "label", label)
 		}
 		// messages are intentionally discarded for now
 	}
@@ -304,13 +305,13 @@ func (r *Relay) write() {
 		case request := <-r.requests:
 			bytes, err := request.MarshalJSON()
 			if err != nil {
-				slog.Error("failed to marshal request", "error", err)
+				r.log.Error("failed to marshal request", "error", err)
 				return
 			}
 
 			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
-					slog.Error("unexpected error when attemping to write", "error", err)
+					r.log.Error("unexpected error when attemping to write", "error", err)
 				}
 				return
 			}
@@ -318,7 +319,7 @@ func (r *Relay) write() {
 		case <-ticker.C:
 			if err := r.writePing(); err != nil {
 				if isUnexpectedClose(err) {
-					slog.Error("unexpected error when attemping to ping", "error", err)
+					r.log.Error("unexpected error when attemping to ping", "error", err)
 				}
 				return
 			}
