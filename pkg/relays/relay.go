@@ -14,11 +14,13 @@ import (
 	ws "github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
-	"github.com/vertex-lab/crawler_v2/pkg/relays/subscription"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
 )
 
 var (
+	ErrInvalidID        = errors.New("invalid event id")
+	ErrInvalidSignature = errors.New("invalid event signature")
+
 	ErrDisconnected       = errors.New("relay has been disconnected")
 	ErrSendFailed         = errors.New("failed to send message, channel is full")
 	ErrSubscriptionClosed = errors.New("subscription was closed")
@@ -32,7 +34,7 @@ type Relay struct {
 	requests chan Request
 	settings settings
 
-	subs *subscription.Router
+	subs *subRouter
 	auth *auth.Handler
 	ping *watchdog.T
 
@@ -52,7 +54,7 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 		url:      url,
 		requests: make(chan Request, 1000),
 		settings: newSettings(),
-		subs:     subscription.NewRouter(true),
+		subs:     newRouter(true),
 		done:     make(chan struct{}),
 	}
 
@@ -78,26 +80,42 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 func (r *Relay) Close() {
 	if r.isClosing.CompareAndSwap(false, true) {
 		close(r.done)
-		r.subs.Clear()
+		r.subs.Clear(ErrDisconnected)
 	}
 }
 
-// Done returns a channel that is closed when the relay is closed.
-// Done is useful for reacting to relay closures.
+// Done returns a channel that is closed when the relay is disconnected,
+// useful for reacting to relay closures.
 func (r *Relay) Done() <-chan struct{} {
 	return r.done
 }
 
-type Subscription struct {
-	ID      string
-	Filters nostr.Filters
-	C       <-chan subscription.Message
-	close   func()
-}
+// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
+// Callers can read messages using the [Subscription.C] channel.
+// Callers are responsible for calling [Subscription.Close] when done.
+func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
+	if r.isClosing.Load() {
+		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
+	}
 
-// Close closes the subscription, releasing resources.
-func (s *Subscription) Close() {
-	s.close()
+	s := &Subscription{
+		ID:      id,
+		Filters: filters,
+		relay:   r,
+		events:  make(chan *nostr.Event, 1000),
+		eose:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	if err := r.subs.Add(s); err != nil {
+		return nil, fmt.Errorf("failed to subscribe: %w", err)
+	}
+
+	if err := r.send(Req{ID: id, Filters: filters}); err != nil {
+		r.subs.Remove(id)
+		return nil, fmt.Errorf("failed to subscribe: %w", err)
+	}
+	return s, nil
 }
 
 // Query sends a REQ to the relay with the given id and filters.
@@ -111,77 +129,35 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
 	}
 
-	sub := make(chan subscription.Message, 1000)
-	if err := r.subscribe(id, filters, sub); err != nil {
-		return nil, err
+	s, err := r.Subscribe(id, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
 	}
+	defer s.Close()
 
 	var events []nostr.Event
 	for {
 		select {
-		case <-r.done:
-			return events, fmt.Errorf("failed to query: %w", ErrDisconnected)
-
 		case <-ctx.Done():
-			r.send(Close{ID: id})
-			r.subs.Remove(id)
 			return events, fmt.Errorf("failed to query: %w", ctx.Err())
 
-		case msg := <-sub:
-			switch {
-			case msg.Event != nil:
-				events = append(events, *msg.Event)
+		case <-s.Done():
+			return events, fmt.Errorf("failed to query: %w", s.Err())
 
-			case msg.EOSE:
-				r.send(Close{ID: id})
-				r.subs.Remove(id)
-				return events, nil
-
-			case msg.Err != nil:
-				return events, fmt.Errorf("failed to query: %w: %w", ErrSubscriptionClosed, msg.Err)
+		case <-s.EOSE():
+			// drain buffered events at the time the EOSE was received
+			// subsequent events will likely be new events from the subscription
+			n := len(s.events)
+			for range n {
+				event := <-s.events
+				events = append(events, *event)
 			}
+			return events, nil
+
+		case event := <-s.events:
+			events = append(events, *event)
 		}
 	}
-}
-
-// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
-// Callers can read messages using the [Subscription.C] channel.
-// Callers are responsible for calling [Subscription.Close] when done.
-func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
-	if r.isClosing.Load() {
-		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
-	}
-
-	c := make(chan subscription.Message, 1000)
-	if err := r.subscribe(id, filters, c); err != nil {
-		return nil, fmt.Errorf("failed to subscribe: %w", err)
-	}
-
-	sub := &Subscription{
-		ID:      id,
-		Filters: filters,
-		C:       c,
-		close: func() {
-			r.send(Close{ID: id})
-			r.subs.Remove(id)
-		},
-	}
-	return sub, nil
-}
-
-// subscribe sends a REQ to the relay with the given id and filters,
-// and associates the given channel with the subscription in the relay's router.
-func (r *Relay) subscribe(id string, filters nostr.Filters, ch chan subscription.Message) error {
-	if err := r.subs.Add(id, filters, ch); err != nil {
-		return err
-	}
-
-	req := Req{ID: id, Filters: filters}
-	if err := r.send(req); err != nil {
-		r.subs.Remove(id)
-		return err
-	}
-	return nil
 }
 
 // Send enqueues a request to be sent to the relay.
@@ -243,7 +219,12 @@ func (r *Relay) read() {
 				continue
 			}
 
-			if err := r.subs.RouteEvent(msg.SubID, &msg.Event); err != nil {
+			if err := verify(&msg.Event); err != nil {
+				slog.Error("failed to verify event", "relay", r.url, "error", err)
+				continue
+			}
+
+			if err := r.subs.Route(msg.SubID, &msg.Event); err != nil {
 				slog.Error("failed to route event", "relay", r.url, "error", err)
 			}
 
@@ -253,7 +234,7 @@ func (r *Relay) read() {
 				slog.Error("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
-			r.subs.RouteClosed(closed.ID, closed.Message)
+			r.subs.SignalClosed(closed.ID, closed.Message)
 
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
@@ -261,10 +242,7 @@ func (r *Relay) read() {
 				slog.Error("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
-
-			if err := r.subs.RouteEOSE(eose.ID); err != nil {
-				slog.Error("failed to route eose", "relay", r.url, "error", err)
-			}
+			r.subs.SignalEOSE(eose.ID)
 
 		case "AUTH":
 			if r.auth == nil {
@@ -285,7 +263,11 @@ func (r *Relay) read() {
 				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
 				continue
 			}
-			r.send(Auth{Event: response})
+
+			err = r.send(Auth{Event: response})
+			if err != nil && !errors.Is(err, ErrDisconnected) {
+				slog.Warn("failed to send auth response", "relay", r.url, "error", err)
+			}
 
 		case "OK":
 			// this is in response to our AUTH message.
@@ -365,6 +347,20 @@ func ValidateURL(u string) error {
 	}
 	if parsed.Scheme != "wss" && parsed.Scheme != "ws" {
 		return fmt.Errorf("invalid url scheme: %s", parsed.Scheme)
+	}
+	return nil
+}
+
+func verify(e *nostr.Event) error {
+	if !e.CheckID() {
+		return ErrInvalidID
+	}
+	match, err := e.CheckSignature()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
+	}
+	if !match {
+		return ErrInvalidSignature
 	}
 	return nil
 }

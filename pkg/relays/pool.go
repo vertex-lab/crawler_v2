@@ -9,7 +9,6 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/smallset"
-	"github.com/vertex-lab/crawler_v2/pkg/relays/subscription"
 )
 
 var ErrNoRelays = fmt.Errorf("no relays in the pool")
@@ -143,34 +142,4 @@ func (p *Pool) Query(ctx context.Context, id string, filters nostr.Filters) ([]n
 		err = errors.Join(err, fmt.Errorf("relay %s: %w", r.relay, r.err))
 	}
 	return events, err
-}
-
-// Subscribe creates a subscription to the given filters across all connected relays in the pool.
-// It returns a subscription object that can be used to receive events and cancel the subscription.
-// Callers are responsible for calling [Subscription.Close] when done.
-func (p *Pool) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
-	p.mu.Lock()
-	relays := p.connected.Items()
-	p.mu.Unlock()
-
-	var errs []error
-	c := make(chan subscription.Message, 10_000)
-	for _, r := range relays {
-		if err := r.subscribe(id, filters, c); err != nil {
-			errs = append(errs, fmt.Errorf(""))
-		}
-	}
-
-	sub := &Subscription{
-		ID:      id,
-		Filters: filters,
-		C:       c,
-		close: func() {
-			for _, r := range relays {
-				r.send(Close{ID: id})
-				r.subs.Remove(id)
-			}
-		},
-	}
-	return sub, errors.Join(errs...)
 }
