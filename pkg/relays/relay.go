@@ -32,7 +32,7 @@ type Relay struct {
 	requests chan Request
 	settings settings
 
-	subs *subscription.Manager
+	subs *subscription.Router
 	auth *auth.Handler
 	ping *watchdog.T
 
@@ -52,7 +52,7 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 		url:      url,
 		requests: make(chan Request, 1000),
 		settings: newSettings(),
-		subs:     subscription.NewManager(1000),
+		subs:     subscription.NewRouter(true),
 		done:     make(chan struct{}),
 	}
 
@@ -78,8 +78,26 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 func (r *Relay) Close() {
 	if r.isClosing.CompareAndSwap(false, true) {
 		close(r.done)
-		r.subs.CloseAll()
+		r.subs.Clear()
 	}
+}
+
+// Done returns a channel that is closed when the relay is closed.
+// Done is useful for reacting to relay closures.
+func (r *Relay) Done() <-chan struct{} {
+	return r.done
+}
+
+type Subscription struct {
+	ID      string
+	Filters nostr.Filters
+	C       <-chan subscription.Message
+	close   func()
+}
+
+// Close closes the subscription, releasing resources.
+func (s *Subscription) Close() {
+	s.close()
 }
 
 // Query sends a REQ to the relay with the given id and filters.
@@ -90,21 +108,11 @@ func (r *Relay) Close() {
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
 	if r.isClosing.Load() {
-		return nil, ErrDisconnected
+		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
 	}
 
-	req := Req{
-		ID:      id,
-		Filters: filters,
-	}
-
-	sub, err := r.subs.New(req.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := r.send(req); err != nil {
-		r.subs.Close(req.ID)
+	sub := make(chan subscription.Message, 1000)
+	if err := r.subscribe(id, filters, sub); err != nil {
 		return nil, err
 	}
 
@@ -112,64 +120,68 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 	for {
 		select {
 		case <-r.done:
-			return events, ErrDisconnected
+			return events, fmt.Errorf("failed to query: %w", ErrDisconnected)
 
 		case <-ctx.Done():
-			r.send(Close{ID: req.ID})
-			r.subs.Close(req.ID)
-			return events, ctx.Err()
+			r.send(Close{ID: id})
+			r.subs.Remove(id)
+			return events, fmt.Errorf("failed to query: %w", ctx.Err())
 
-		case msg, ok := <-sub.Messages():
-			if !ok {
-				// The channel is closed without a Closed message because it was full.
-				return events, ErrSubscriptionClosed
-			}
-
+		case msg := <-sub:
 			switch {
 			case msg.Event != nil:
 				events = append(events, *msg.Event)
 
 			case msg.EOSE:
-				r.send(Close{ID: req.ID})
-				r.subs.Close(req.ID)
+				r.send(Close{ID: id})
+				r.subs.Remove(id)
 				return events, nil
 
 			case msg.Err != nil:
-				// ForceClose already removed the subscription from the manager.
-				return events, fmt.Errorf("%w: %w", ErrSubscriptionClosed, msg.Err)
+				return events, fmt.Errorf("failed to query: %w: %w", ErrSubscriptionClosed, msg.Err)
 			}
 		}
 	}
 }
 
 // Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
-// Callers can read messages using the Subscription.Messages() channel.
-// Callers must close the subscription when done, by calling the returned cancel function.
-func (r *Relay) Subscribe(id string, filters nostr.Filters) (sub *subscription.T, cancel func(), err error) {
+// Callers can read messages using the [Subscription.C] channel.
+// Callers are responsible for calling [Subscription.Close] when done.
+func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
 	if r.isClosing.Load() {
-		return nil, nil, ErrDisconnected
+		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
 	}
 
-	req := Req{
+	c := make(chan subscription.Message, 1000)
+	if err := r.subscribe(id, filters, c); err != nil {
+		return nil, fmt.Errorf("failed to subscribe: %w", err)
+	}
+
+	sub := &Subscription{
 		ID:      id,
 		Filters: filters,
+		C:       c,
+		close: func() {
+			r.send(Close{ID: id})
+			r.subs.Remove(id)
+		},
+	}
+	return sub, nil
+}
+
+// subscribe sends a REQ to the relay with the given id and filters,
+// and associates the given channel with the subscription in the relay's router.
+func (r *Relay) subscribe(id string, filters nostr.Filters, ch chan subscription.Message) error {
+	if err := r.subs.Add(id, filters, ch); err != nil {
+		return err
 	}
 
-	sub, err = r.subs.New(req.ID)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	req := Req{ID: id, Filters: filters}
 	if err := r.send(req); err != nil {
-		r.subs.Close(req.ID)
-		return nil, nil, err
+		r.subs.Remove(id)
+		return err
 	}
-
-	cancel = func() {
-		r.send(Close{ID: req.ID})
-		r.subs.Close(req.ID)
-	}
-	return sub, cancel, nil
+	return nil
 }
 
 // Send enqueues a request to be sent to the relay.
@@ -188,6 +200,109 @@ func (r *Relay) send(request Request) error {
 
 	default:
 		return ErrSendFailed
+	}
+}
+
+// read consumes incoming messages from the websocket connection.
+func (r *Relay) read() {
+	defer r.Close()
+
+	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
+	// r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
+
+	for {
+		if r.isClosing.Load() {
+			return
+		}
+
+		msgType, reader, err := r.conn.NextReader()
+		if err != nil {
+			if isUnexpectedClose(err) {
+				slog.Error("unexpected close error from relay", "relay", r.url, "error", err)
+			}
+			return
+		}
+
+		if msgType != ws.TextMessage {
+			slog.Warn("received binary message", "relay", r.url)
+			continue
+		}
+
+		decoder := json.NewDecoder(reader)
+		label, err := parseLabel(decoder)
+		if err != nil {
+			slog.Error("failed to parse label", "relay", r.url, "error", err)
+			continue
+		}
+
+		switch label {
+		case "EVENT":
+			msg, err := parseEvent(decoder)
+			if err != nil {
+				slog.Error("failed to parse event", "relay", r.url, "error", err)
+				continue
+			}
+
+			if err := r.subs.RouteEvent(msg.SubID, &msg.Event); err != nil {
+				slog.Error("failed to route event", "relay", r.url, "error", err)
+			}
+
+		case "CLOSED":
+			closed, err := parseClosed(decoder)
+			if err != nil {
+				slog.Error("failed to parse closed", "relay", r.url, "error", err)
+				continue
+			}
+			r.subs.RouteClosed(closed.ID, closed.Message)
+
+		case "EOSE":
+			eose, err := parseEOSE(decoder)
+			if err != nil {
+				slog.Error("failed to parse eose", "relay", r.url, "error", err)
+				continue
+			}
+
+			if err := r.subs.RouteEOSE(eose.ID); err != nil {
+				slog.Error("failed to route eose", "relay", r.url, "error", err)
+			}
+
+		case "AUTH":
+			if r.auth == nil {
+				// auth handler not configured, skip
+				continue
+			}
+
+			auth, err := parseAuth(decoder)
+			if err != nil {
+				slog.Error("failed to parse auth", "relay", r.url, "error", err)
+				continue
+			}
+
+			// after receiving the challenge we immediately auth
+			r.auth.SetChallenge(auth.Challenge)
+			response, err := r.auth.Response()
+			if err != nil {
+				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
+				continue
+			}
+			r.send(Auth{Event: response})
+
+		case "OK":
+			// this is in response to our AUTH message.
+			// We don't need to do anything with it yet.
+
+		case "NOTICE":
+			notice, err := parseNotice(decoder)
+			if err != nil {
+				slog.Error("failed to parse notice", "relay", r.url, "error", err)
+				continue
+			}
+			slog.Info("received notice message", "relay", r.url, "message", notice.Message)
+
+		default:
+			slog.Debug("received unknown message", "relay", r.url, "label", label)
+		}
+		// messages are intentionally discarded for now
 	}
 }
 
@@ -230,107 +345,6 @@ func (r *Relay) write() {
 			}
 			// r.ping.Arm()
 		}
-	}
-}
-
-// read consumes incoming messages from the websocket connection.
-func (r *Relay) read() {
-	defer r.Close()
-
-	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
-	// r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
-
-	for {
-		select {
-		case <-r.done:
-			return
-
-		default:
-			// proceed
-		}
-
-		msgType, reader, err := r.conn.NextReader()
-		if err != nil {
-			if isUnexpectedClose(err) {
-				slog.Error("unexpected close error from relay", "relay", r.url, "error", err)
-			}
-			return
-		}
-
-		if msgType != ws.TextMessage {
-			slog.Warn("received binary message", "relay", r.url)
-			continue
-		}
-
-		decoder := json.NewDecoder(reader)
-		label, err := parseLabel(decoder)
-		if err != nil {
-			slog.Error("failed to parse label", "relay", r.url, "error", err)
-			continue
-		}
-
-		switch label {
-		case "EVENT":
-			msg, err := parseEvent(decoder)
-			if err != nil {
-				slog.Error("failed to parse event", "relay", r.url, "error", err)
-				continue
-			}
-			r.subs.Route(msg.SubID, &msg.Event)
-
-		case "CLOSED":
-			closed, err := parseClosed(decoder)
-			if err != nil {
-				slog.Error("failed to parse closed", "relay", r.url, "error", err)
-				continue
-			}
-			r.subs.ForceClose(closed.ID, closed.Message)
-
-		case "EOSE":
-			eose, err := parseEOSE(decoder)
-			if err != nil {
-				slog.Error("failed to parse eose", "relay", r.url, "error", err)
-				continue
-			}
-			r.subs.EOSE(eose.ID)
-
-		case "AUTH":
-			if r.auth == nil {
-				// auth handler not configured, skip
-				continue
-			}
-
-			auth, err := parseAuth(decoder)
-			if err != nil {
-				slog.Error("failed to parse auth", "relay", r.url, "error", err)
-				continue
-			}
-
-			// after receiving the challenge we immediately auth
-			r.auth.SetChallenge(auth.Challenge)
-			response, err := r.auth.Response()
-			if err != nil {
-				slog.Error("failed to generate auth response", "relay", r.url, "error", err)
-				continue
-			}
-			r.send(Auth{Event: response})
-
-		case "OK":
-			// this is in response to our AUTH message.
-			// We don't need to do anything with it yet.
-
-		case "NOTICE":
-			notice, err := parseNotice(decoder)
-			if err != nil {
-				slog.Error("failed to parse notice", "relay", r.url, "error", err)
-				continue
-			}
-			slog.Info("received notice message", "relay", r.url, "message", notice.Message)
-
-		default:
-			slog.Debug("received unknown message", "relay", r.url, "label", label)
-		}
-		// messages are intentionally discarded for now
 	}
 }
 

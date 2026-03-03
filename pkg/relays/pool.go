@@ -9,6 +9,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/smallset"
+	"github.com/vertex-lab/crawler_v2/pkg/relays/subscription"
 )
 
 var ErrNoRelays = fmt.Errorf("no relays in the pool")
@@ -16,27 +17,26 @@ var ErrNoRelays = fmt.Errorf("no relays in the pool")
 // Pool represents a set of relays.
 // All relays will have the same options, and will be treated as a single entity.
 type Pool struct {
-	mu     sync.Mutex
-	relays *smallset.Custom[*Relay]
-
-	urls *smallset.Ordered[string]
-	opts []Option
+	mu           sync.Mutex
+	connected    *smallset.Custom[*Relay]
+	disconnected *smallset.Ordered[string] // only the urls
+	opts         []Option
 }
 
 // NewPool creates a new pool of relays with the provided URLs and options.
 // Call connect to establish connections to the relays, Close to disconnect all.
 func NewPool(urls []string, opts ...Option) (*Pool, error) {
-	unique := smallset.From(urls...)
-	for _, u := range unique.Ascend() {
+	disconnected := smallset.From(urls...)
+	for _, u := range disconnected.Ascend() {
 		if err := ValidateURL(u); err != nil {
 			return nil, err
 		}
 	}
 
 	pool := &Pool{
-		relays: smallset.NewCustom(Compare, unique.Size()),
-		urls:   unique,
-		opts:   opts,
+		connected:    smallset.NewCustom(Compare, disconnected.Size()),
+		disconnected: disconnected,
+		opts:         opts,
 	}
 	return pool, nil
 }
@@ -46,11 +46,11 @@ func NewPool(urls []string, opts ...Option) (*Pool, error) {
 // One goroutine is spawned per relay and connections are established concurrently.
 func (p *Pool) Connect(ctx context.Context) (int, error) {
 	p.mu.Lock()
-	urls := p.urls.Items()
+	toConnect := p.disconnected.Items()
 	p.mu.Unlock()
 
-	if len(urls) == 0 {
-		return 0, ErrNoRelays
+	if len(toConnect) == 0 {
+		return 0, nil
 	}
 
 	type result struct {
@@ -58,10 +58,10 @@ func (p *Pool) Connect(ctx context.Context) (int, error) {
 		err   error
 	}
 
-	results := make(chan result, len(urls))
+	results := make(chan result, len(toConnect))
 	wg := sync.WaitGroup{}
 
-	for _, url := range urls {
+	for _, url := range toConnect {
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
@@ -83,14 +83,26 @@ func (p *Pool) Connect(ctx context.Context) (int, error) {
 		}
 
 		p.mu.Lock()
-		p.relays.Add(res.relay)
-		p.mu.Unlock()
+		p.disconnected.Remove(res.relay.url)
+		p.connected.Add(res.relay)
 		connected++
+		p.mu.Unlock()
 	}
 	return connected, errors.Join(errs...)
 }
 
-// Query all relays in the pool concurrently with the given id and filters.
+// Close closes all relay connections.
+func (p *Pool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, r := range p.connected.Ascend() {
+		r.Close()
+	}
+	p.connected.Clear()
+}
+
+// Query queries all currently connected relays in the pool concurrently with the given id and filters.
 // It returns the combined events from all relays and a joined error of any individual query errors.
 // An error from one relay does not prevent events from being returned from other relays.
 //
@@ -98,10 +110,11 @@ func (p *Pool) Connect(ctx context.Context) (int, error) {
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (p *Pool) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
 	p.mu.Lock()
-	relays := p.relays.Items()
+	relays := p.connected.Items()
 	p.mu.Unlock()
 
 	type result struct {
+		relay  string
 		events []nostr.Event
 		err    error
 	}
@@ -114,7 +127,7 @@ func (p *Pool) Query(ctx context.Context, id string, filters nostr.Filters) ([]n
 		go func(r *Relay) {
 			defer wg.Done()
 			events, err := r.Query(ctx, id, filters)
-			results <- result{events, err}
+			results <- result{r.url, events, err}
 		}(r)
 	}
 
@@ -124,20 +137,40 @@ func (p *Pool) Query(ctx context.Context, id string, filters nostr.Filters) ([]n
 	var events []nostr.Event
 	var err error
 
-	for res := range results {
-		events = append(events, res.events...)
-		err = errors.Join(err)
+	for r := range results {
+		// TODO: deduplicate events and handle replaceable and addressable events
+		events = append(events, r.events...)
+		err = errors.Join(err, fmt.Errorf("relay %s: %w", r.relay, r.err))
 	}
 	return events, err
 }
 
-// Close closes all relay connections.
-func (p *Pool) Close() {
+// Subscribe creates a subscription to the given filters across all connected relays in the pool.
+// It returns a subscription object that can be used to receive events and cancel the subscription.
+// Callers are responsible for calling [Subscription.Close] when done.
+func (p *Pool) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	relays := p.connected.Items()
+	p.mu.Unlock()
 
-	for _, r := range p.relays.Ascend() {
-		r.Close()
+	var errs []error
+	c := make(chan subscription.Message, 10_000)
+	for _, r := range relays {
+		if err := r.subscribe(id, filters, c); err != nil {
+			errs = append(errs, fmt.Errorf(""))
+		}
 	}
-	p.relays.Clear()
+
+	sub := &Subscription{
+		ID:      id,
+		Filters: filters,
+		C:       c,
+		close: func() {
+			for _, r := range relays {
+				r.send(Close{ID: id})
+				r.subs.Remove(id)
+			}
+		},
+	}
+	return sub, errors.Join(errs...)
 }

@@ -1,14 +1,18 @@
+// Package subscription provides a Router to route relay messages to subscription channels.
 package subscription
 
 import (
 	"errors"
-	"log/slog"
 	"sync"
 
 	"github.com/nbd-wtf/go-nostr"
 )
 
-var ErrDuplicate = errors.New("subscription with the same id already exists")
+var (
+	ErrDuplicate    = errors.New("subscription with the same id already exists")
+	ErrFullChannel  = errors.New("subscription channel is full")
+	ErrInvalidMatch = errors.New("event does not match the subscription filters")
+)
 
 // Message represents a message received from a relay.
 // It can be either an EVENT, EOSE, or CLOSED message.
@@ -18,131 +22,124 @@ type Message struct {
 	Err   error        // non-nil when the relay sent CLOSED
 }
 
-func Event(e *nostr.Event) Message { return Message{Event: e} }
-func Closed(reason string) Message { return Message{Err: errors.New(reason)} }
-func EOSE() Message                { return Message{EOSE: true} }
-
-// T represents an active subscription to a relay.
-// Read the subscription messages using the Messages method.
-type T struct {
-	ID string
-	c  chan Message
+// subscription is an internal representation of a subscription.
+type subscription struct {
+	Filters nostr.Filters
+	C       chan<- Message
 }
 
-// Messages returns a channel that receives messages from the subscription.
-func (s *T) Messages() <-chan Message {
-	return s.c
-}
-
-// Manager represents a manager for subscriptions.
-// It exposes methods to manage the lifecycle of subscriptions.
+// Router routes incoming relay messages to the appropriate subscription channel.
 // All methods are safe for concurrent use.
-type Manager struct {
-	mu       sync.RWMutex
-	subs     map[string]*T
-	capacity int
+type Router struct {
+	mu   sync.RWMutex
+	subs map[string]subscription
+
+	// verifyMatch controls whether the router verifies that events match
+	// the subscription's filters before routing it.
+	verifyMatch bool
 }
 
-// NewManager creates a new Manager. Each subscription will have a buffer of capacity messages.
-func NewManager(capacity int) *Manager {
-	return &Manager{
-		subs:     make(map[string]*T),
-		capacity: capacity,
+// NewRouter creates a new Router. If verifyMatch is true,
+// the router will verify that events match the subscription's filters before routing it.
+func NewRouter(verifyMatch bool) *Router {
+	return &Router{
+		subs:        make(map[string]subscription),
+		verifyMatch: verifyMatch,
 	}
 }
 
-// New creates a new subscription and adds it to the manager.
-func (m *Manager) New(id string) (*T, error) {
-	sub := &T{
-		ID: id,
-		c:  make(chan Message, m.capacity),
-	}
+// Has returns true if the Router has a subscription with the given ID.
+func (r *Router) Has(id string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.subs[id]; exists {
-		return nil, ErrDuplicate
-	}
-	m.subs[id] = sub
-	return sub, nil
+	_, ok := r.subs[id]
+	return ok
 }
 
-// Close closes the subscription with the given ID.
-func (m *Manager) Close(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// Add registers a subscription channel under the provided id.
+// Returns ErrDuplicate if a subscription with the same ID already exists.
+func (r *Router) Add(id string, filters nostr.Filters, ch chan<- Message) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	sub, found := m.subs[id]
+	if _, ok := r.subs[id]; ok {
+		return ErrDuplicate
+	}
+	r.subs[id] = subscription{Filters: filters, C: ch}
+	return nil
+}
+
+// Remove unregisters the subscription with the given ID from the Router.
+// It does not close the subscription's channel; the caller is responsible for that.
+func (r *Router) Remove(id string) {
+	r.mu.Lock()
+	delete(r.subs, id)
+	r.mu.Unlock()
+}
+
+// Clear unregisters all subscriptions from the Router.
+// It does not close any subscription channels; callers are responsible for that.
+func (r *Router) Clear() {
+	r.mu.Lock()
+	clear(r.subs)
+	r.mu.Unlock()
+}
+
+// RouteEvent delivers an EVENT message to the subscription with the given ID.
+// If the subscription's channel is full, the event is dropped and a warning is logged.
+func (r *Router) RouteEvent(id string, e *nostr.Event) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	sub, found := r.subs[id]
 	if !found {
-		return
+		return nil
 	}
 
-	close(sub.c)
-	delete(m.subs, id)
-}
-
-// CloseAll closes all subscriptions.
-func (m *Manager) CloseAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for id, sub := range m.subs {
-		close(sub.c)
-		delete(m.subs, id)
-	}
-}
-
-// ForceClose reacts to an unexpected closure of the subscription with the given ID and reason.
-func (m *Manager) ForceClose(id string, reason string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	sub, found := m.subs[id]
-	if !found {
-		return
+	if r.verifyMatch && !sub.Filters.Match(e) {
+		return ErrInvalidMatch
 	}
 
 	select {
-	case sub.c <- Closed(reason):
+	case sub.C <- Message{Event: e}:
+		return nil
 	default:
-		slog.Warn("subscription channel is full, dropped CLOSED", "subscription", id, "reason", reason)
-	}
-
-	close(sub.c)
-	delete(m.subs, id)
-}
-
-// Route routes an event to the subscription with the given ID.
-func (m *Manager) Route(id string, event *nostr.Event) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	sub, found := m.subs[id]
-	if !found {
-		return
-	}
-
-	select {
-	case sub.c <- Event(event):
-	default:
-		slog.Warn("subscription channel is full, dropped EVENT", "subscription", id, "event", event.ID)
+		return ErrFullChannel
 	}
 }
 
-// EOSE signals the end of stored events for the subscription with the given ID.
-func (m *Manager) EOSE(id string) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// RouteEOSE delivers an EOSE message to the subscription with the given ID.
+// If the subscription's channel is full, the EOSE is dropped and a warning is logged.
+func (r *Router) RouteEOSE(id string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	sub, found := m.subs[id]
+	sub, found := r.subs[id]
 	if !found {
-		return
+		return nil
 	}
 
 	select {
-	case sub.c <- EOSE():
+	case sub.C <- Message{EOSE: true}:
+		return nil
 	default:
-		slog.Warn("subscription channel is full, dropped EOSE", "subscription", id)
+		return ErrFullChannel
+	}
+}
+
+// RouteClosed delivers a CLOSED message to the subscription with the given ID and removes
+// it from the Router.
+// The subscription is removed before the send so that no further messages can be routed to it.
+// If there is a reader consuming from the channel, it is guaranteed it will eventually drain
+// and the blocking send will complete.
+func (r *Router) RouteClosed(id string, reason string) {
+	r.mu.Lock()
+	sub, found := r.subs[id]
+	delete(r.subs, id)
+	r.mu.Unlock()
+
+	if found {
+		sub.C <- Message{Err: errors.New(reason)}
 	}
 }
