@@ -14,7 +14,6 @@ import (
 	ws "github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
-	"github.com/vertex-lab/crawler_v2/pkg/relays/watchdog"
 )
 
 var (
@@ -36,7 +35,6 @@ type Relay struct {
 
 	subs *subRouter
 	auth *auth.Handler
-	ping *watchdog.T
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -184,7 +182,6 @@ func (r *Relay) read() {
 	defer r.Close()
 
 	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
-	// r.conn.SetPongHandler(func(_ string) error { r.ping.Disarm(); return nil })
 
 	for {
 		if r.isClosing.Load() {
@@ -325,7 +322,6 @@ func (r *Relay) write() {
 				}
 				return
 			}
-			// r.ping.Arm()
 		}
 	}
 }
@@ -391,10 +387,4 @@ func isUnexpectedClose(err error) bool {
 		ws.CloseNormalClosure,
 		ws.CloseNoStatusReceived,
 		ws.CloseAbnormalClosure)
-}
-
-func logNoPong(url string) func() {
-	return func() {
-		slog.Warn("the relay did not respond to a PING", "relay", url)
-	}
 }
