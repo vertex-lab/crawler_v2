@@ -24,9 +24,9 @@ type Subscription struct {
 	afterEOSE atomic.Bool
 	eose      chan struct{}
 
-	closed atomic.Bool
-	done   chan struct{}
-	err    error // holds the reason for subscription closure
+	isClosing atomic.Bool
+	done      chan struct{}
+	err       error // holds the reason for subscription closure
 }
 
 // ID returns the subscription ID.
@@ -43,7 +43,7 @@ func (s *Subscription) Filters() nostr.Filters {
 
 // Close closes the subscription, releasing resources.
 func (s *Subscription) Close() {
-	if s.closed.CompareAndSwap(false, true) {
+	if s.isClosing.CompareAndSwap(false, true) {
 		s.relay.subs.Remove(s.id)
 		err := s.relay.send(Close{ID: s.id})
 		if err != nil && !errors.Is(err, ErrDisconnected) {
@@ -71,7 +71,7 @@ func (s *Subscription) IsLive() bool {
 
 // IsActive returns true if the subscription is still active.
 func (s *Subscription) IsActive() bool {
-	return !s.closed.Load()
+	return !s.isClosing.Load()
 }
 
 // Done returns a channel that is closed when the subscription is done.
@@ -83,6 +83,9 @@ func (s *Subscription) Done() <-chan struct{} {
 // Err returns the reason for the subscription closure.
 // If the subscription is still active (Done hasn't fired), Err returns nil.
 func (s *Subscription) Err() error {
+	// We can't use s.isClosing directly because it would exist
+	// a brief time where the isClosing is true but the err hasn't been set.
+	// Using the channel is safe because we always set the error and then close the channel.
 	select {
 	case <-s.done:
 		return s.err
@@ -148,7 +151,7 @@ func (r *subRouter) Clear(err error) {
 	r.mu.Unlock()
 
 	for _, s := range subs {
-		if s.closed.CompareAndSwap(false, true) {
+		if s.isClosing.CompareAndSwap(false, true) {
 			s.err = err
 			close(s.done)
 		}
@@ -197,7 +200,7 @@ func (r *subRouter) SignalClosed(id string, reason string) {
 	delete(r.subs, id)
 	r.mu.Unlock()
 
-	if found && s.closed.CompareAndSwap(false, true) {
+	if found && s.isClosing.CompareAndSwap(false, true) {
 		s.err = errors.New(reason)
 		close(s.done)
 	}
