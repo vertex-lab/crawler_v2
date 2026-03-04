@@ -74,6 +74,11 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 	return r, nil
 }
 
+// URL returns the URL of the relay.
+func (r *Relay) URL() string {
+	return r.url
+}
+
 // Close disconnects the relay, signalling the read and write goroutines to stop.
 // Multiple calls to Close are a no-op.
 func (r *Relay) Close() {
@@ -124,10 +129,6 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, erro
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
-	if r.isClosing.Load() {
-		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
-	}
-
 	s, err := r.Subscribe(id, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query: %w", err)
@@ -144,8 +145,8 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 			return events, fmt.Errorf("failed to query: %w", s.Err())
 
 		case <-s.EOSE():
-			// drain buffered events at the time the EOSE was received
-			// subsequent events will likely be new events from the subscription
+			// drain buffered events at the time the EOSE was received.
+			// Subsequent events will likely be new events from the subscription
 			n := len(s.events)
 			for range n {
 				event := <-s.events
@@ -282,7 +283,6 @@ func (r *Relay) read() {
 		default:
 			r.log.Debug("received unknown message", "relay", r.url, "label", label)
 		}
-		// messages are intentionally discarded for now
 	}
 }
 

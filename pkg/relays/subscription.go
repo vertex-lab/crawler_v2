@@ -17,7 +17,7 @@ var (
 type Subscription struct {
 	ID      string
 	Filters nostr.Filters
-	relay   *Relay // pointer to the parent relay, useful for
+	relay   *Relay // pointer to the parent relay, useful for the close
 
 	events chan *nostr.Event
 
@@ -69,7 +69,7 @@ func (s *Subscription) Done() <-chan struct{} {
 }
 
 // Err returns the reason for the subscription closure.
-// If the subscription is still active, Err returns nil.
+// If the subscription is still active (Done hasn't fired), Err returns nil.
 func (s *Subscription) Err() error {
 	select {
 	case <-s.done:
