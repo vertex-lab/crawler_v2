@@ -103,8 +103,8 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, erro
 	}
 
 	s := &Subscription{
-		ID:      id,
-		Filters: filters,
+		id:      id,
+		filters: filters,
 		relay:   r,
 		events:  make(chan *nostr.Event, 1000),
 		eose:    make(chan struct{}),

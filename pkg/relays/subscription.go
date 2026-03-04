@@ -15,8 +15,8 @@ var (
 )
 
 type Subscription struct {
-	ID      string
-	Filters nostr.Filters
+	id      string
+	filters nostr.Filters
 	relay   *Relay // pointer to the parent relay, useful for the close
 
 	events chan *nostr.Event
@@ -29,11 +29,23 @@ type Subscription struct {
 	err    error // holds the reason for subscription closure
 }
 
+// ID returns the subscription ID.
+func (s *Subscription) ID() string {
+	return s.id
+}
+
+// Filters returns the subscription filters.
+func (s *Subscription) Filters() nostr.Filters {
+	f := make(nostr.Filters, len(s.filters))
+	copy(f, s.filters)
+	return f
+}
+
 // Close closes the subscription, releasing resources.
 func (s *Subscription) Close() {
 	if s.closed.CompareAndSwap(false, true) {
-		s.relay.subs.Remove(s.ID)
-		err := s.relay.send(Close{ID: s.ID})
+		s.relay.subs.Remove(s.id)
+		err := s.relay.send(Close{ID: s.id})
 		if err != nil && !errors.Is(err, ErrDisconnected) {
 			s.relay.log.Warn("failed to send close", "relay", s.relay.url, "error", err)
 		}
@@ -114,10 +126,10 @@ func (r *subRouter) Add(s *Subscription) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.subs[s.ID]; ok {
+	if _, ok := r.subs[s.id]; ok {
 		return ErrDuplicateSub
 	}
-	r.subs[s.ID] = s
+	r.subs[s.id] = s
 	return nil
 }
 
@@ -154,7 +166,7 @@ func (r *subRouter) Route(id string, e *nostr.Event) error {
 		return nil
 	}
 
-	if r.verifyMatch && !s.Filters.Match(e) {
+	if r.verifyMatch && !s.filters.Match(e) {
 		return ErrInvalidSubMatch
 	}
 
