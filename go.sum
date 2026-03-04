@@ -23,8 +23,6 @@ github.com/coder/websocket v1.8.12/go.mod h1:LNVeNrXQZfe5qhS9ALED3uA+l5pPqvwXg3C
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/deckarep/golang-set/v2 v2.8.0 h1:swm0rlPCmdWn9mESxKOjWk8hXSqoxOp+ZlfuyaAdFlQ=
-github.com/deckarep/golang-set/v2 v2.8.0/go.mod h1:VAky9rY/yGXJOLEDv3OMci+7wtDpOF4IN+y82NBOac4=
 github.com/decred/dcrd/crypto/blake256 v1.1.0 h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
 github.com/decred/dcrd/crypto/blake256 v1.1.0/go.mod h1:2OfgNZ5wDpcsFmHmCK5gZTPcCXqlm2ArzUIkw9czNJo=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 h1:NMZiJj8QnKe1LgsbDayM4UoHwbvwDRwnI3hwNaAHRnc=
@@ -64,8 +62,6 @@ github.com/nbd-wtf/go-nostr v0.52.0 h1:9gtz0VOUPOb0PC2kugr2WJAxThlCSSM62t5VC3tvk
 github.com/nbd-wtf/go-nostr v0.52.0/go.mod h1:4avYoc9mDGZ9wHsvCOhHH9vPzKucCfuYBtJUSpHTfNk=
 github.com/pippellia-btc/slicex v0.2.4 h1:zVZ7c0pZu01LL0f+cWPrgBdPJHQ3iMyGjf7ucGoO6RY=
 github.com/pippellia-btc/slicex v0.2.4/go.mod h1:fu7VjA9Cdk76wIUlkzWOYiMG8/VEs1fJiUhkKqEopd8=
-github.com/pippellia-btc/smallset v0.4.3 h1:N87VJbYKjGfECYM6PCPciyHJflDH9ZEV+45M5CMHEEQ=
-github.com/pippellia-btc/smallset v0.4.3/go.mod h1:VYIMqOCTpNyTqg08nBHG2xHIepR9Px70R6iKcSY28hY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/puzpuzpuz/xsync/v3 v3.5.1 h1:GJYJZwO6IdxN/IKbneznS6yPkVC+c3zyY/j19c++5Fg=
