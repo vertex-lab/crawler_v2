@@ -51,7 +51,7 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 
 	r := &Relay{
 		url:      url,
-		requests: make(chan Request, 1000),
+		requests: make(chan Request, 100),
 		settings: newSettings(),
 		subs:     newRouter(true),
 		done:     make(chan struct{}),
@@ -95,7 +95,7 @@ func (r *Relay) Done() <-chan struct{} {
 }
 
 // Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
-// Callers can read messages using the [Subscription.C] channel.
+// Callers can read messages using the [Subscription.Events] channel.
 // Callers are responsible for calling [Subscription.Close] when done.
 func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
 	if r.isClosing.Load() {
@@ -154,7 +154,7 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 			}
 			return events, nil
 
-		case event := <-s.events:
+		case event := <-s.Events():
 			events = append(events, *event)
 		}
 	}
