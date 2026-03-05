@@ -98,39 +98,45 @@ func (r *Relay) Done() <-chan struct{} {
 	return r.done
 }
 
-// subscribe is the internal implementation of Subscribe.
-// Callers can specify the events channel to receive events on.
-func (r *Relay) subscribe(id string, filters nostr.Filters, events chan *nostr.Event) (*Subscription, error) {
-	if r.isClosing.Load() {
-		return nil, ErrDisconnected
+// open opens a subscription on the relay.
+// This method allows the caller to directly specify the subscription and its channels,
+// allowing for deeper control and the ability to re-use channels across subscriptions.
+func (r *Relay) open(s *Subscription) error {
+	if s.relay == nil {
+		s.relay = r
 	}
-
-	s := &Subscription{
-		id:      id,
-		filters: filters,
-		relay:   r,
-		events:  events,
-		eose:    make(chan struct{}),
-		done:    make(chan struct{}),
+	if s.relay != r {
+		return errors.New("subscription belongs to a different relay")
 	}
 
 	if err := r.subs.Add(s); err != nil {
-		return nil, err
+		return err
 	}
-
-	if err := r.send(Req{ID: id, Filters: filters}); err != nil {
-		r.subs.Remove(id)
-		return nil, err
+	if err := r.send(Req{ID: s.id, Filters: s.filters}); err != nil {
+		r.subs.Remove(s.id)
+		return err
 	}
-	return s, nil
+	return nil
 }
 
 // Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
 // Callers can read messages using the [Subscription.Events] channel.
 // Callers are responsible for calling [Subscription.Close] when done.
 func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
-	s, err := r.subscribe(id, filters, make(chan *nostr.Event, 1000))
-	if err != nil {
+	if r.isClosing.Load() {
+		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
+	}
+
+	s := &Subscription{
+		id:      id,
+		filters: filters,
+		relay:   r,
+		events:  make(chan *nostr.Event, 1000),
+		eose:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	if err := r.open(s); err != nil {
 		return nil, fmt.Errorf("failed to subscribe: %w", err)
 	}
 	return s, nil
@@ -143,13 +149,34 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, erro
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
-	s, err := r.subscribe(id, filters, make(chan *nostr.Event, 1000))
-	if err != nil {
+	if r.isClosing.Load() {
+		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
+	}
+
+	s := &Subscription{
+		id:      id,
+		filters: filters,
+		relay:   r,
+		events:  make(chan *nostr.Event, 1000),
+		eose:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	if err := r.open(s); err != nil {
 		return nil, fmt.Errorf("failed to query: %w", err)
 	}
 	defer s.Close()
 
-	var events []nostr.Event
+	expected := 0
+	for _, f := range filters {
+		if f.Limit == 0 && !f.LimitZero {
+			expected = 1000 // no limit specified, default to 1000
+			break
+		}
+		expected += int(f.Limit)
+	}
+
+	events := make([]nostr.Event, 0, expected)
 	for {
 		select {
 		case <-ctx.Done():
