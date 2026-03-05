@@ -98,29 +98,39 @@ func (r *Relay) Done() <-chan struct{} {
 	return r.done
 }
 
-// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
-// Callers can read messages using the [Subscription.Events] channel.
-// Callers are responsible for calling [Subscription.Close] when done.
-func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
+// subscribe is the internal implementation of Subscribe.
+// Callers can specify the events channel to receive events on.
+func (r *Relay) subscribe(id string, filters nostr.Filters, events chan *nostr.Event) (*Subscription, error) {
 	if r.isClosing.Load() {
-		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
+		return nil, ErrDisconnected
 	}
 
 	s := &Subscription{
 		id:      id,
 		filters: filters,
 		relay:   r,
-		events:  make(chan *nostr.Event, 1000),
+		events:  events,
 		eose:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
 
 	if err := r.subs.Add(s); err != nil {
-		return nil, fmt.Errorf("failed to subscribe: %w", err)
+		return nil, err
 	}
 
 	if err := r.send(Req{ID: id, Filters: filters}); err != nil {
 		r.subs.Remove(id)
+		return nil, err
+	}
+	return s, nil
+}
+
+// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
+// Callers can read messages using the [Subscription.Events] channel.
+// Callers are responsible for calling [Subscription.Close] when done.
+func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
+	s, err := r.subscribe(id, filters, make(chan *nostr.Event, 1000))
+	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe: %w", err)
 	}
 	return s, nil
@@ -133,7 +143,7 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, erro
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
 func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
-	s, err := r.Subscribe(id, filters)
+	s, err := r.subscribe(id, filters, make(chan *nostr.Event, 1000))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query: %w", err)
 	}
