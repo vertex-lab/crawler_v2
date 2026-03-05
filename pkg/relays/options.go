@@ -10,6 +10,15 @@ import (
 
 type Option func(*Relay) error
 
+// WithOnClosed sets the callback function to be called when relay received a CLOSED message.
+// The function will be called in the relay hot-path, so it must be fast.
+func WithOnClosed(fn func(id string, reason string)) Option {
+	return func(r *Relay) error {
+		r.onClosed = fn
+		return nil
+	}
+}
+
 // WithAuthKey sets the authentication key, which will be used to sign auth events
 // immediately after receiving an AUTH challenge.
 func WithAuthKey(sk string) Option {
