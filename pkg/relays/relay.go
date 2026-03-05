@@ -54,6 +54,7 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 		requests: make(chan Request, 100),
 		settings: newSettings(),
 		subs:     newRouter(true),
+		log:      slog.Default(),
 		done:     make(chan struct{}),
 	}
 
