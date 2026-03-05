@@ -2,10 +2,10 @@ package relays
 
 import (
 	"errors"
+	"log/slog"
 	"sync/atomic"
 
 	"github.com/nbd-wtf/go-nostr"
-	"golang.org/x/exp/slog"
 )
 
 var (

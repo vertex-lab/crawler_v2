@@ -1,21 +1,5 @@
 package relays
 
-// The pool manages a set of relay connections and presents a unified
-// subscription API to the caller. Responsibilities are layered:
-//
-//	Pool   — owns the desired subscription state (source of truth).
-//	         Supervises workers and respawns them with backoff when they
-//	         die, replaying its subscription state to each new instance.
-//
-//	worker — owns the active subscriptions for one relay connection.
-//	         Supervises forward goroutines and retries individual
-//	         subscriptions closed by the relay, with backoff.
-//	         Dies when the relay disconnects; reports back to the pool.
-//
-//	forward — moves events from one subscription to the pool's event
-//	          stream. Dies when the subscription closes; reports the
-//	          subscription ID back to the worker.
-
 import (
 	"context"
 	"errors"
@@ -29,20 +13,22 @@ import (
 )
 
 var (
-	ErrPoolClosed   = fmt.Errorf("pool is closed")
-	errWorkerClosed = fmt.Errorf("worker is closed")
+	ErrPoolClosed = fmt.Errorf("pool is closed")
 )
 
+// Pool manages a set of relay connections and presents a unified streaming
+// API to the caller. It owns the desired stream state and is responsible
+// for maintaining it across relay disconnections: when a session dies, the
+// Pool respawns it with backoff and replays its streams to the new instance.
 type Pool struct {
-	// For each stream, workers are expected to maintain the corresponding
-	// subscription on their respective relays. The pool replays this map to any new worker.
+	// The currently active streams, keyed by their ID.
 	streams map[string]*Stream
 
-	// workers is the set of active workers, keyed by their relay URL.
-	workers map[string]*worker
+	// sessions holds the currently active sessions, keyed by their relay URL.
+	sessions map[string]*session
 
-	// URLs of relays that have disconnected are sent here.
-	disconnections chan disconnection
+	// dead receives sessions that are no longer active.
+	dead chan *session
 
 	// operations is the channel for subscribe/unsubscribe requests from the caller.
 	operations chan streamOp
@@ -52,11 +38,13 @@ type Pool struct {
 }
 
 func NewPool(urls ...string) (*Pool, error) {
+	size := max(len(urls), 100)
 	p := &Pool{
-		streams:        make(map[string]*Stream),
-		workers:        make(map[string]*worker, len(urls)),
-		disconnections: make(chan disconnection, 100),
-		operations:     make(chan streamOp, 100),
+		streams:    make(map[string]*Stream),
+		sessions:   make(map[string]*session, size),
+		dead:       make(chan *session, size),
+		operations: make(chan streamOp, 100),
+		done:       make(chan struct{}),
 	}
 
 	for _, u := range slicex.Unique(urls) {
@@ -64,17 +52,17 @@ func NewPool(urls ...string) (*Pool, error) {
 			return nil, fmt.Errorf("invalid url %q: %w", u, err)
 		}
 
-		w := &worker{
+		s := &session{
 			url:        u,
 			pool:       p,
-			subs:       make(map[string]*Subscription),
+			pipes:      make(map[string]*pipe),
+			dead:       make(chan *pipe, 100),
 			operations: make(chan streamOp, 100),
-			closed:     make(chan *Stream, 100),
 			done:       make(chan struct{}),
 		}
 
-		go w.run()
-		p.workers[u] = w
+		go s.run()
+		p.sessions[u] = s
 	}
 
 	go p.run()
@@ -122,9 +110,16 @@ func (p *Pool) sendOp(op streamOp) error {
 	}
 }
 
-type disconnection struct {
-	url string
-	err error
+// notifyDeath sends a session to the pool's dead channel, unless the pool is closing.
+func (p *Pool) notifyDeath(s *session) {
+	if p.isClosing.Load() {
+		return
+	}
+
+	select {
+	case <-p.done:
+	case p.dead <- s:
+	}
 }
 
 // Stream creates a new stream with the given id and filters, returning a
@@ -169,10 +164,10 @@ func (p *Pool) run() {
 	for {
 		select {
 		case <-p.done:
-			for _, w := range p.workers {
-				w.close()
+			for _, s := range p.sessions {
+				s.close()
 			}
-			clear(p.workers)
+			clear(p.sessions)
 
 			for _, s := range p.streams {
 				s.err = ErrPoolClosed
@@ -196,172 +191,185 @@ func (p *Pool) run() {
 					op.reply <- nil
 				}
 
-				for _, w := range p.workers {
-					w.sendOp(op)
+				for _, s := range p.sessions {
+					s.sendOp(op)
 				}
 
 			case kindClose:
 				if _, ok := p.streams[op.id]; ok {
 					delete(p.streams, op.id)
-					for _, w := range p.workers {
-						w.sendOp(op)
+					for _, s := range p.sessions {
+						s.sendOp(op)
 					}
 				}
 			}
 
-		case d := <-p.disconnections:
-			delete(p.workers, d.url)
-			if d.err != nil {
-				slog.Warn("relay disconnected", "relay", d.url, "error", d.err)
+		case s := <-p.dead:
+			delete(p.sessions, s.url)
+			if s.err != nil {
+				slog.Warn("relay disconnected", "relay", s.url, "error", s.err)
 			}
 			// TODO: Respawn it after a backoff and replay the desired subs.
 		}
 	}
 }
 
-type worker struct {
+// session manages the connection to a single relay.
+// It owns the pipes that send events from one subscription to a stream.
+// When a pipe dies because the relay closed the subscription, the session
+// retries it with backoff. When the relay disconnects entirely, the session
+// reports back to the Pool and exits.
+type session struct {
 	url   string
 	relay *Relay
 
-	// pool is the pool this worker belongs to, useful in disconnections
-	pool *Pool
+	// pipes holds the active pipes of this session, keyed by subscription/stream ID.
+	pipes map[string]*pipe
 
-	// subs holds the active subscriptions on this relay.
-	// This is the worker's own view of reality: a subset of the pool's
-	// desired state. Entries are missing when the relay has closed them
-	// and the worker is waiting to retry.
-	subs map[string]*Subscription
+	// dead holds the pipes that have died and need to be retried.
+	dead chan *pipe
 
 	// operations receives subscribe/unsubscribe commands from the pool.
 	operations chan streamOp
 
-	// subscriptions closed by the relay are sent here, so the worker can retry them.
-	closed chan *Stream
+	// pool is the pool this session belongs to.
+	pool *Pool
 
 	isClosing atomic.Bool
 	done      chan struct{}
+	err       error // holds the disconnection error
 }
 
-func (w *worker) close() {
-	if w.isClosing.CompareAndSwap(false, true) {
-		close(w.done)
+func (s *session) close() {
+	if s.isClosing.CompareAndSwap(false, true) {
+		if s.relay != nil {
+			s.relay.Close()
+		}
+		close(s.done)
 	}
 }
 
-// sendOp sends a stream operation to the worker's operations channel.
-// Because workers are ephemeral entities, this methods doesn't return an error.
-func (w *worker) sendOp(op streamOp) {
-	if w.isClosing.Load() {
+// sendOp sends a stream operation to the session's operations channel.
+// Because sessions are ephemeral entities, this methods doesn't return an error.
+func (s *session) sendOp(op streamOp) {
+	if s.isClosing.Load() {
 		return
 	}
 
 	select {
-	case <-w.done:
-		return
-
-	case w.operations <- op:
-		return
-
+	case <-s.done:
+	case s.operations <- op:
 	default:
-		slog.Warn("worker sending operation failed", "worker", w.url, "op", op)
-		return
+		slog.Warn("session sending operation failed", "session", s.url, "op", op)
 	}
 }
 
-func (w *worker) signalDisconnect(err error) {
-	if w.isClosing.Load() {
+// notifyDeath sends a pipe to the session's dead channel, unless the session is closing.
+func (s *session) notifyDeath(p *pipe) {
+	if s.isClosing.Load() {
 		return
 	}
 
 	select {
-	case <-w.done:
-		return
-
-	case w.pool.disconnections <- disconnection{url: w.url, err: err}:
-		return
+	case <-s.done:
+	case s.dead <- p:
 	}
 }
 
-func (w *worker) run() {
+func (s *session) run() {
+	defer s.close()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	relay, err := New(ctx, w.url)
+	relay, err := New(ctx, s.url)
 	if err != nil {
-		w.signalDisconnect(err)
+		s.err = err
+		s.pool.notifyDeath(s)
 		return
 	}
-
-	defer relay.Close()
-	w.relay = relay
+	s.relay = relay
 
 	for {
 		select {
-		case <-w.done:
+		case <-s.done:
 			return
 
-		case <-w.relay.Done():
+		case <-s.relay.Done():
 			// TODO: add method relay.Err() method to know the reason why Done was fired.
-			w.signalDisconnect(nil)
+			s.pool.notifyDeath(s)
 			return
 
-		case op := <-w.operations:
+		case op := <-s.operations:
 			switch op.kind {
 			case kindOpen:
-				sub, err := w.relay.Subscribe(op.id, op.filters)
+				sub, err := s.relay.Subscribe(op.id, op.filters)
 				if err != nil {
-					slog.Error("failed to open subscription", "url", w.url, "id", op.id, "error", err)
-					return
+					slog.Error("failed to open subscription", "url", s.url, "id", op.id, "error", err)
+					continue
 				}
 
-				w.subs[op.id] = sub
-				go w.forward(sub, op.Stream)
+				p := &pipe{
+					sub:     sub,
+					stream:  op.Stream,
+					session: s,
+				}
+
+				s.pipes[op.id] = p
+				go p.run()
 
 			case kindClose:
-				if sub, ok := w.subs[op.id]; ok {
-					sub.Close()
-					delete(w.subs, op.id)
+				if p, ok := s.pipes[op.id]; ok {
+					p.sub.Close()
+					delete(s.pipes, op.id)
 				}
 			}
 
-		case stream := <-w.closed:
+		case pipe := <-s.dead:
 			// the relay closed the subscription associated with the stream.
-			_ = stream // TODO: retry with backoff
+			_ = pipe // TODO: retry with backoff
 		}
 	}
 }
 
-func (w *worker) forward(sub *Subscription, stream *Stream) {
+// pipe forwards events from a subscription to its parent stream.
+// When the subscription is closed, the pipe reports back to the session,
+// unless the closure is due to the relay disconnecting.
+type pipe struct {
+	sub    *Subscription
+	stream *Stream
+
+	// session is the parent session of this pipe.
+	session *session
+}
+
+func (p *pipe) run() {
 	for {
 		select {
-		case <-w.done:
-			return
-
-		case <-sub.Done():
-			// drain any remaining event
-			n := len(sub.Events())
-			for range n {
-				e := <-sub.Events()
-				stream.events <- e
-			}
-
-			err := sub.Err()
+		case <-p.sub.Done():
+			err := p.sub.Err()
 			if err != nil && !errors.Is(err, ErrDisconnected) {
 				// the subscription was closed by a CLOSED sent by the relay.
-				// send to the worker's closed channel to retry the subscription.
-				slog.Warn("subscription was closed by relay", "url", w.url, "id", sub.id, "error", err)
-				w.closed <- stream
-				return
+				// send to the session's closed channel to retry the subscription.
+				p.session.notifyDeath(p)
 			}
 
-		case e := <-sub.Events():
-			stream.events <- e
+			// drain any remaining event
+			n := len(p.sub.Events())
+			for range n {
+				e := <-p.sub.Events()
+				p.stream.events <- e
+			}
+			return
+
+		case e := <-p.sub.Events():
+			p.stream.events <- e
 
 			// drain all events to avoid blocking the subscription
-			n := len(sub.Events())
+			n := len(p.sub.Events())
 			for range n {
-				e = <-sub.Events()
-				stream.events <- e
+				e = <-p.sub.Events()
+				p.stream.events <- e
 			}
 		}
 	}

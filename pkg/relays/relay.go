@@ -80,7 +80,7 @@ func (r *Relay) URL() string {
 	return r.url
 }
 
-// Close disconnects the relay, signalling the read and write goroutines to stop.
+// Close disconnects the relay, closing all subscriptions and stopping the read and write goroutines.
 // Multiple calls to Close are a no-op.
 func (r *Relay) Close() {
 	if r.isClosing.CompareAndSwap(false, true) {
