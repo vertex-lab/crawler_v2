@@ -56,7 +56,8 @@ func NewPool(urls []string, opts ...Option) (*Pool, error) {
 		s := &session{
 			url:        url,
 			pool:       p,
-			subs:       make(map[string]*Subscription),
+			active:     make(map[string]*Subscription),
+			inactive:   make(map[string]closedSub),
 			dead:       make(chan string, 100),
 			operations: make(chan streamOp, 100),
 			done:       make(chan struct{}),
@@ -123,7 +124,7 @@ const (
 )
 
 // streamOp represents an operation to be performed on a stream, including
-// the stream itself and an optional channel to receive the result nil for success, non-nil for error.
+// the stream itself and an optional channel to receive the result.
 type streamOp struct {
 	*Stream
 	kind  opKind
@@ -215,6 +216,11 @@ func (p *Pool) run() {
 	}
 }
 
+type closedSub struct {
+	*Subscription
+	lastActive time.Time
+}
+
 // session manages the connection to a single relay and all its subscriptions.
 // When a subscription is closed by the relay, the session restarts it with a backoff.
 // When the relay disconnects entirely, the session reports back to the Pool and exits.
@@ -222,8 +228,11 @@ type session struct {
 	url   string
 	relay *Relay
 
-	// subs holds the active subscriptions of this session, keyed by their ID.
-	subs map[string]*Subscription
+	// active holds the active subscriptions of this session, keyed by their ID.
+	active map[string]*Subscription
+
+	// inactive holds the closed subscriptions of this session, keyed by their ID.
+	inactive map[string]closedSub
 
 	// dead holds the IDs of subscriptions that have died and need to be restarted.
 	dead chan string
@@ -292,13 +301,14 @@ func (s *session) run() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	relay, err := New(ctx, s.url, s.options()...)
-	if err != nil {
-		s.err = err
+	s.relay, s.err = New(ctx, s.url, s.options()...)
+	if s.err != nil {
 		s.pool.notifyDeath(s)
 		return
 	}
-	s.relay = relay
+
+	retry := time.NewTicker(5 * time.Second)
+	defer retry.Stop()
 
 	for {
 		select {
@@ -309,16 +319,6 @@ func (s *session) run() {
 			// TODO: add method relay.Err() method to know the reason why Done was fired.
 			s.pool.notifyDeath(s)
 			return
-
-		case id := <-s.dead:
-			// the relay run the onClosed, returning here the subscription ID
-			sub, exists := s.subs[id]
-			if exists {
-				delete(s.subs, id)
-				slog.Error("relay closed subscription", "url", s.url, "id", id, "error", sub.Err())
-
-				// TODO: decide whether to retry the subscription or not
-			}
 
 		case op := <-s.operations:
 			switch op.kind {
@@ -337,17 +337,70 @@ func (s *session) run() {
 
 				if err := s.relay.open(sub); err != nil {
 					slog.Error("failed to open subscription", "url", s.url, "id", op.id, "error", err)
+					s.inactive[op.id] = closedSub{Subscription: sub}
 					continue
 				}
-				s.subs[op.id] = sub
+
+				s.active[op.id] = sub
 
 			case kindClose:
-				sub, exists := s.subs[op.id]
-				if exists {
-					delete(s.subs, op.id)
+				if sub, ok := s.active[op.id]; ok {
+					delete(s.active, op.id)
+					sub.Close()
+				}
+
+				if sub, ok := s.inactive[op.id]; ok {
+					delete(s.inactive, op.id)
 					sub.Close()
 				}
 			}
+
+		case id := <-s.dead:
+			if sub, ok := s.active[id]; ok {
+				delete(s.active, id)
+				s.inactive[id] = closedSub{
+					Subscription: sub,
+					lastActive:   time.Now().UTC(),
+				}
+
+				slog.Error("relay closed subscription", "url", s.url, "id", id, "error", sub.Err())
+			}
+
+		case <-retry.C:
+			for _, old := range s.inactive {
+				// make a new subscription with updated filters, and try to open it
+				new := &Subscription{
+					id:      old.id,
+					filters: withSince(old.filters, old.lastActive),
+					events:  old.events,
+					eose:    make(chan struct{}),
+					done:    make(chan struct{}),
+				}
+
+				if err := s.relay.open(new); err != nil {
+					slog.Error("failed to open subscription", "url", s.url, "id", old.id, "error", err)
+					continue
+				}
+
+				s.active[new.id] = new
+				delete(s.inactive, old.id)
+			}
 		}
 	}
+}
+
+// withSince returns a copy of the given filters, with a since field set to the given time.
+func withSince(f nostr.Filters, t time.Time) nostr.Filters {
+	c := make(nostr.Filters, len(f))
+	copy(c, f)
+
+	if t.IsZero() {
+		return c
+	}
+
+	unix := nostr.Timestamp(t.Unix())
+	for i := range c {
+		c[i].Since = &unix
+	}
+	return c
 }
