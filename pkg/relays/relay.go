@@ -42,6 +42,7 @@ type Relay struct {
 
 	isClosing atomic.Bool
 	done      chan struct{}
+	err       error // reason for closing
 }
 
 // New returns a connected Relay.
@@ -86,9 +87,15 @@ func (r *Relay) URL() string {
 // Close disconnects the relay, closing all subscriptions and stopping the read and write goroutines.
 // Multiple calls to Close are a no-op.
 func (r *Relay) Close() {
+	r.close(nil)
+}
+
+// close closes the relay with the given error.
+func (r *Relay) close(err error) {
 	if r.isClosing.CompareAndSwap(false, true) {
+		r.err = err
 		close(r.done)
-		r.subs.Clear(ErrDisconnected)
+		r.subs.Clear()
 	}
 }
 
@@ -96,6 +103,26 @@ func (r *Relay) Close() {
 // useful for reacting to relay closures.
 func (r *Relay) Done() <-chan struct{} {
 	return r.done
+}
+
+// Err returns the reason for the relay disconnection.
+// If the relay is still alive (Done hasn't fired), or if it was closed with
+// Relay.Close, Err returns nil. Otherwise, it returns the underlying connection error.
+func (r *Relay) Err() error {
+	// We can't use r.isClosing directly because it would exist
+	// a brief time where the isClosing is true but the err hasn't been set.
+	// Using the channel is safe because we always set the error and then close the channel.
+	select {
+	case <-r.done:
+		return r.err
+	default:
+		return nil
+	}
+}
+
+// IsAlive returns true if the relay is still alive (not disconnected).
+func (r *Relay) IsAlive() bool {
+	return !r.isClosing.Load()
 }
 
 // open opens a subscription on the relay.
@@ -222,8 +249,6 @@ func (r *Relay) send(request Request) error {
 
 // read consumes incoming messages from the websocket connection.
 func (r *Relay) read() {
-	defer r.Close()
-
 	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
 
 	for {
@@ -236,6 +261,8 @@ func (r *Relay) read() {
 			if isUnexpectedClose(err) {
 				r.log.Error("unexpected close error from relay", "relay", r.url, "error", err)
 			}
+
+			r.close(err)
 			return
 		}
 
@@ -336,7 +363,6 @@ func (r *Relay) write() {
 	ticker := time.NewTicker(r.settings.WS.pingPeriod)
 	defer func() {
 		ticker.Stop()
-		r.Close()
 		r.conn.Close()
 	}()
 
@@ -350,14 +376,14 @@ func (r *Relay) write() {
 			bytes, err := request.MarshalJSON()
 			if err != nil {
 				r.log.Error("failed to marshal request", "error", err)
-				return
+				continue
 			}
 
 			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
 					r.log.Error("unexpected error when attemping to write", "error", err)
 				}
-				return
+				continue
 			}
 
 		case <-ticker.C:
@@ -365,7 +391,7 @@ func (r *Relay) write() {
 				if isUnexpectedClose(err) {
 					r.log.Error("unexpected error when attemping to ping", "error", err)
 				}
-				return
+				continue
 			}
 		}
 	}

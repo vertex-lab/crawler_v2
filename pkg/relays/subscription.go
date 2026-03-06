@@ -2,6 +2,7 @@ package relays
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ var (
 	ErrDuplicateSub    = errors.New("subscription with the same id already exists")
 	ErrFullSubChannel  = errors.New("subscription channel is full")
 	ErrInvalidSubMatch = errors.New("event does not match the subscription filters")
+	ErrClosedSub       = errors.New("subscription closed by the relay")
 )
 
 type Subscription struct {
@@ -93,7 +95,10 @@ func (s *Subscription) Done() <-chan struct{} {
 }
 
 // Err returns the reason for the subscription closure.
-// If the subscription is still active (Done hasn't fired), Err returns nil.
+// If the subscription is still active (Done hasn't fired), or if it was closed with
+// Subscription.Close, Err returns nil.
+// If the subscription was closed by the relay (with a CLOSED message), Err returns the reason
+// wrapped as [ErrClosedSub].
 func (s *Subscription) Err() error {
 	// We can't use s.isClosing directly because it would exist
 	// a brief time where the isClosing is true but the err hasn't been set.
@@ -156,7 +161,7 @@ func (r *subRouter) Remove(id string) {
 }
 
 // Clear closes and unregisters all subscriptions.
-func (r *subRouter) Clear(err error) {
+func (r *subRouter) Clear() {
 	r.mu.Lock()
 	subs := r.subs
 	r.subs = make(map[string]*Subscription)
@@ -164,7 +169,7 @@ func (r *subRouter) Clear(err error) {
 
 	for _, s := range subs {
 		if s.isClosing.CompareAndSwap(false, true) {
-			s.err = err
+			s.err = ErrDisconnected
 			close(s.done)
 		}
 	}
@@ -214,7 +219,7 @@ func (r *subRouter) SignalClosed(id string, reason string) {
 	r.mu.Unlock()
 
 	if found && s.isClosing.CompareAndSwap(false, true) {
-		s.err = errors.New(reason)
+		s.err = fmt.Errorf("%w: %s", ErrClosedSub, reason)
 		close(s.done)
 	}
 }
