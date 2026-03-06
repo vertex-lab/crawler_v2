@@ -17,17 +17,19 @@ var (
 
 // Pool manages a set of relay connections and presents a unified streaming
 // API to the caller. It owns the desired stream state and is responsible
-// for maintaining it across relay disconnections: when a session dies, the
-// Pool respawns it with backoff and replays its streams to the new instance.
+// for maintaining it across relay disconnections and subscription closures.
 type Pool struct {
 	// The currently active streams, keyed by their ID.
 	streams map[string]*Stream
 
-	// sessions holds the currently active sessions, keyed by their relay URL.
-	sessions map[string]*session
+	// active holds the currently active sessions, keyed by their relay URL.
+	active map[string]*session
 
-	// dead receives sessions that are no longer active.
-	dead chan *session
+	// dormant holds the currently dormant sessions, keyed by their relay URL.
+	dormant map[string]*session
+
+	// closed receives sessions URLs that have returned due to a relay disconnection.
+	closed chan string
 
 	// operations is the channel for subscribe/unsubscribe requests from the caller.
 	operations chan streamOp
@@ -41,8 +43,9 @@ type Pool struct {
 func NewPool(urls []string, opts ...Option) (*Pool, error) {
 	p := &Pool{
 		streams:    make(map[string]*Stream),
-		sessions:   make(map[string]*session, len(urls)),
-		dead:       make(chan *session, 100),
+		active:     make(map[string]*session, len(urls)),
+		dormant:    make(map[string]*session, len(urls)),
+		closed:     make(chan string, 100),
 		operations: make(chan streamOp, 100),
 		options:    opts,
 		done:       make(chan struct{}),
@@ -63,8 +66,8 @@ func NewPool(urls []string, opts ...Option) (*Pool, error) {
 			done:       make(chan struct{}),
 		}
 
+		p.active[url] = s
 		go s.run()
-		p.sessions[url] = s
 	}
 
 	go p.run()
@@ -150,26 +153,31 @@ func (p *Pool) sendOp(op streamOp) error {
 	}
 }
 
-// notifyDeath reports a dead session to the pool.
-func (p *Pool) notifyDeath(s *session) {
+// notifyClosed reports a disconnected session to the pool.
+func (p *Pool) notifyClosed(s *session) {
 	if p.isClosing.Load() {
 		return
 	}
 
 	select {
 	case <-p.done:
-	case p.dead <- s:
+	case p.closed <- s.url:
 	}
 }
 
 func (p *Pool) run() {
+	retry := time.NewTicker(10 * time.Minute)
+	defer retry.Stop()
+
 	for {
 		select {
 		case <-p.done:
-			for _, s := range p.sessions {
+			for _, s := range p.active {
 				s.close()
 			}
-			clear(p.sessions)
+			clear(p.active)
+
+			// TODO: should I close dormant sessions as well?
 
 			for _, s := range p.streams {
 				s.err = ErrPoolClosed
@@ -181,7 +189,7 @@ func (p *Pool) run() {
 		case op := <-p.operations:
 			switch op.kind {
 			case kindOpen:
-				if _, exists := p.streams[op.id]; exists {
+				if _, ok := p.streams[op.id]; ok {
 					if op.reply != nil {
 						op.reply <- ErrDuplicateStream
 					}
@@ -193,25 +201,45 @@ func (p *Pool) run() {
 					op.reply <- nil
 				}
 
-				for _, s := range p.sessions {
+				for _, s := range p.active {
 					s.sendOp(op)
 				}
 
 			case kindClose:
-				if _, exists := p.streams[op.id]; exists {
+				if _, ok := p.streams[op.id]; ok {
 					delete(p.streams, op.id)
-					for _, s := range p.sessions {
+					for _, s := range p.active {
 						s.sendOp(op)
 					}
 				}
 			}
 
-		case s := <-p.dead:
-			delete(p.sessions, s.url)
-			if s.err != nil {
+		case url := <-p.closed:
+			if s, ok := p.dormant[url]; ok {
+				p.dormant[url] = s
+				delete(p.active, url)
 				slog.Warn("relay disconnected", "relay", s.url, "error", s.err)
 			}
-			// TODO: Respawn it after a backoff and replay the desired subs.
+
+		case <-retry.C:
+			for _, old := range p.dormant {
+				// make a new session from the dormant one
+				new := &session{
+					url:        old.url,
+					pool:       p,
+					active:     make(map[string]*Subscription, len(p.streams)),
+					dormant:    make(map[string]*Subscription, len(p.streams)),
+					closed:     make(chan string, 100),
+					operations: make(chan streamOp, 100),
+					done:       make(chan struct{}),
+				}
+
+				p.active[new.url] = new
+				delete(p.dormant, old.url)
+				go new.run()
+
+				// TODO: how to send the streams?
+			}
 		}
 	}
 }
@@ -280,17 +308,6 @@ func (s *session) notifyClosed(id string) {
 	}
 }
 
-// options returns the relay options.
-// These are copied from the pool, with the expection of the last WithOnClosed option.
-// The WithOnClosed option is fundamental to the session lifecycle, as it's the only way the
-// session can react to subscriptions that have been closed by the relay.
-func (s *session) options() []Option {
-	opts := make([]Option, len(s.pool.options)+1)
-	copy(opts, s.pool.options)
-	opts = append(opts, WithOnClosed(func(id, _ string) { s.notifyClosed(id) }))
-	return opts
-}
-
 func (s *session) run() {
 	defer s.close()
 
@@ -299,11 +316,11 @@ func (s *session) run() {
 
 	s.relay, s.err = New(ctx, s.url, s.options()...)
 	if s.err != nil {
-		s.pool.notifyDeath(s)
+		s.pool.notifyClosed(s)
 		return
 	}
 
-	retry := time.NewTicker(5 * time.Second)
+	retry := time.NewTicker(10 * time.Second)
 	defer retry.Stop()
 
 	for {
@@ -312,8 +329,8 @@ func (s *session) run() {
 			return
 
 		case <-s.relay.Done():
-			// TODO: add method relay.Err() method to know the reason why Done was fired.
-			s.pool.notifyDeath(s)
+			s.err = s.relay.Err()
+			s.pool.notifyClosed(s)
 			return
 
 		case op := <-s.operations:
@@ -359,7 +376,8 @@ func (s *session) run() {
 
 		case <-retry.C:
 			for _, old := range s.dormant {
-				// make a new subscription with updated filters, and try to open it
+				// make a new subscription and try to open it.
+				// The filters are updated to a since set to the last event, to avoid duplicates
 				new := &Subscription{
 					id:      old.id,
 					filters: withSince(old.filters, old.LastEvent()),
@@ -380,6 +398,17 @@ func (s *session) run() {
 	}
 }
 
+// options returns the relay options.
+// These are copied from the pool, with the expection of the last WithOnClosed option.
+// The WithOnClosed option is fundamental to the session lifecycle, as it's the only way the
+// session can react to subscriptions that have been closed by the relay.
+func (s *session) options() []Option {
+	opts := make([]Option, len(s.pool.options)+1)
+	copy(opts, s.pool.options)
+	opts = append(opts, WithOnClosed(func(id, _ string) { s.notifyClosed(id) }))
+	return opts
+}
+
 // withSince returns a copy of the given filters, with a since field set to the given time.
 func withSince(f nostr.Filters, t time.Time) nostr.Filters {
 	c := make(nostr.Filters, len(f))
@@ -388,7 +417,7 @@ func withSince(f nostr.Filters, t time.Time) nostr.Filters {
 	unix := t.Unix()
 	if unix <= 0 {
 		// don't add a non-positive since to avoid breaking other implementations.
-		// after all, a negative since is the same as no since at all.
+		// after all, a non-positive since is the same as no since at all.
 		return c
 	}
 
