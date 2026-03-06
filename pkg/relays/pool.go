@@ -29,6 +29,7 @@ type Pool struct {
 	operations chan streamOp
 
 	options []Option
+	log     *slog.Logger
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -37,7 +38,7 @@ type Pool struct {
 // NewPool creates a new Pool with the given URLs and options.
 // The context is only used to establish the connections; it does not control the lifetime of the pool.
 // Call pool.Close to close all connections and free resources.
-func NewPool(ctx context.Context, urls []string, opts ...Option) (*Pool, error) {
+func NewPool(urls []string, opts ...Option) (*Pool, error) {
 	urls = slicex.Unique(urls)
 	for i, url := range urls {
 		if err := ValidateURL(url); err != nil {
@@ -49,6 +50,7 @@ func NewPool(ctx context.Context, urls []string, opts ...Option) (*Pool, error) 
 		streams:    make(map[string]*Stream),
 		sessions:   make(map[string]*session, len(urls)),
 		operations: make(chan streamOp, 100),
+		log:        slog.Default(),
 		options:    opts,
 		done:       make(chan struct{}),
 	}
@@ -210,7 +212,7 @@ func (p *Pool) run() {
 					continue
 				}
 
-				slog.Debug("session failed, retrying", "relay", url, "error", s.Err())
+				p.log.Debug("session failed, retrying", "relay", url, "error", s.Err())
 
 				// make a new session from the dormant one, and send a copy of all the streams to it.
 				// If the connection attempt will succeed, the new session will open all the subscriptions
@@ -341,7 +343,7 @@ func (s *session) run() {
 					continue
 				}
 
-				slog.Debug("subscription failed, retrying", "relay", s.url, "id", sub.ID(), "error", sub.Err())
+				s.pool.log.Debug("subscription failed, retrying", "relay", s.url, "id", sub.ID(), "error", sub.Err())
 
 				// make a new subscription and try to open it.
 				// To avoid duplicate events, all filters use a since set to the last time
@@ -375,7 +377,7 @@ func (s *session) openSub(stream *Stream) {
 	case <-s.done:
 	case s.operations <- streamOp{Stream: stream, kind: openStream}:
 	default:
-		slog.Warn("session openSub failed", "session", s.url, "error", "channel is full")
+		s.pool.log.Warn("session openSub failed", "session", s.url, "error", "channel is full")
 	}
 }
 
@@ -389,7 +391,7 @@ func (s *session) closeSub(stream *Stream) {
 	case <-s.done:
 	case s.operations <- streamOp{Stream: stream, kind: closeStream}:
 	default:
-		slog.Warn("session closeSub failed", "session", s.url, "error", "channel is full")
+		s.pool.log.Warn("session closeSub failed", "session", s.url, "error", "channel is full")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
 )
 
+// TODO: separate between relay options and pool options
 type Option func(*Relay) error
 
 // WithAuthKey sets the authentication key, which will be used to sign auth events
