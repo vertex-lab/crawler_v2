@@ -82,7 +82,7 @@ func (p *Pool) Close() {
 // Stream creates a new stream with the given id and filters, returning a
 // Stream object that can be used to receive events from all connected relays.
 // It returns an error if the pool is closed, or if the stream id is duplicated.
-func (p *Pool) Stream(id string, filters nostr.Filters) (*Stream, error) {
+func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 	if p.isClosing.Load() {
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 	}
