@@ -22,14 +22,8 @@ type Pool struct {
 	// The currently active streams, keyed by their ID.
 	streams map[string]*Stream
 
-	// active holds the currently active sessions, keyed by their relay URL.
-	active map[string]*session
-
-	// dormant holds the currently dormant sessions, keyed by their relay URL.
-	dormant map[string]*session
-
-	// closed receives sessions URLs that have returned due to a relay disconnection.
-	closed chan string
+	// active holds the pool sessions, keyed by their relay URL.
+	sessions map[string]*session
 
 	// operations is the channel for subscribe/unsubscribe requests from the caller.
 	operations chan streamOp
@@ -40,33 +34,35 @@ type Pool struct {
 	done      chan struct{}
 }
 
-func NewPool(urls []string, opts ...Option) (*Pool, error) {
+// NewPool creates a new Pool with the given URLs and options.
+// The context is only used to establish the connections; it does not control the lifetime of the pool.
+// Call pool.Close to close all connections and free resources.
+func NewPool(ctx context.Context, urls []string, opts ...Option) (*Pool, error) {
+	urls = slicex.Unique(urls)
+	for i, url := range urls {
+		if err := ValidateURL(url); err != nil {
+			return nil, fmt.Errorf("invalid url at position %d: %q: %w", i, url, err)
+		}
+	}
+
 	p := &Pool{
 		streams:    make(map[string]*Stream),
-		active:     make(map[string]*session, len(urls)),
-		dormant:    make(map[string]*session, len(urls)),
-		closed:     make(chan string, 100),
+		sessions:   make(map[string]*session, len(urls)),
 		operations: make(chan streamOp, 100),
 		options:    opts,
 		done:       make(chan struct{}),
 	}
 
-	for _, url := range slicex.Unique(urls) {
-		if err := ValidateURL(url); err != nil {
-			return nil, fmt.Errorf("invalid url %q: %w", url, err)
-		}
-
+	for _, url := range urls {
 		s := &session{
 			url:        url,
 			pool:       p,
-			active:     make(map[string]*Subscription),
-			dormant:    make(map[string]*Subscription),
-			closed:     make(chan string, 100),
+			subs:       make(map[string]*Subscription),
 			operations: make(chan streamOp, 100),
 			done:       make(chan struct{}),
 		}
 
-		p.active[url] = s
+		p.sessions[url] = s
 		go s.run()
 	}
 
@@ -86,7 +82,7 @@ func (p *Pool) Close() {
 // It returns an error if the pool is closed, or if the stream id is duplicated.
 func (p *Pool) Stream(id string, filters nostr.Filters) (*Stream, error) {
 	if p.isClosing.Load() {
-		return nil, fmt.Errorf("failed to create stream: %w", ErrDisconnected)
+		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 	}
 
 	s := &Stream{
@@ -97,13 +93,13 @@ func (p *Pool) Stream(id string, filters nostr.Filters) (*Stream, error) {
 		done:    make(chan struct{}),
 	}
 
-	op := streamOp{
+	open := streamOp{
 		Stream: s,
-		kind:   kindOpen,
+		kind:   openStream,
 		reply:  make(chan error, 1),
 	}
 
-	if err := p.sendOp(op); err != nil {
+	if err := p.send(open); err != nil {
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 
@@ -111,7 +107,7 @@ func (p *Pool) Stream(id string, filters nostr.Filters) (*Stream, error) {
 	case <-p.done:
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 
-	case err := <-op.reply:
+	case err := <-open.reply:
 		if err != nil {
 			return nil, fmt.Errorf("failed to create stream: %w", err)
 		}
@@ -122,8 +118,8 @@ func (p *Pool) Stream(id string, filters nostr.Filters) (*Stream, error) {
 type opKind int
 
 const (
-	kindOpen  opKind = 0
-	kindClose opKind = 1
+	openStream  opKind = 0
+	closeStream opKind = 1
 )
 
 // streamOp represents an operation to be performed on a stream, including
@@ -134,9 +130,9 @@ type streamOp struct {
 	reply chan error
 }
 
-// sendOp sends a stream operation to the pool's operations channel.
+// send sends a stream operation to the pool's operations channel.
 // It returns an error if the pool is closed or if the send fails due to backpressure.
-func (p *Pool) sendOp(op streamOp) error {
+func (p *Pool) send(op streamOp) error {
 	if p.isClosing.Load() {
 		return ErrPoolClosed
 	}
@@ -153,18 +149,6 @@ func (p *Pool) sendOp(op streamOp) error {
 	}
 }
 
-// notifyClosed reports a disconnected session to the pool.
-func (p *Pool) notifyClosed(s *session) {
-	if p.isClosing.Load() {
-		return
-	}
-
-	select {
-	case <-p.done:
-	case p.closed <- s.url:
-	}
-}
-
 func (p *Pool) run() {
 	retry := time.NewTicker(10 * time.Minute)
 	defer retry.Stop()
@@ -172,23 +156,23 @@ func (p *Pool) run() {
 	for {
 		select {
 		case <-p.done:
-			for _, s := range p.active {
-				s.close()
+			for _, s := range p.sessions {
+				s.close(nil)
 			}
-			clear(p.active)
-
-			// TODO: should I close dormant sessions as well?
+			clear(p.sessions)
 
 			for _, s := range p.streams {
-				s.err = ErrPoolClosed
-				close(s.done)
+				if s.isClosing.CompareAndSwap(false, true) {
+					s.err = ErrPoolClosed
+					close(s.done)
+				}
 			}
 			clear(p.streams)
 			return
 
 		case op := <-p.operations:
 			switch op.kind {
-			case kindOpen:
+			case openStream:
 				if _, ok := p.streams[op.id]; ok {
 					if op.reply != nil {
 						op.reply <- ErrDuplicateStream
@@ -201,44 +185,49 @@ func (p *Pool) run() {
 					op.reply <- nil
 				}
 
-				for _, s := range p.active {
-					s.sendOp(op)
+				for _, s := range p.sessions {
+					if s.isActive() {
+						s.openSub(op.Stream)
+					}
 				}
 
-			case kindClose:
-				if _, ok := p.streams[op.id]; ok {
-					delete(p.streams, op.id)
-					for _, s := range p.active {
-						s.sendOp(op)
+			case closeStream:
+				if _, ok := p.streams[op.id]; !ok {
+					continue
+				}
+
+				delete(p.streams, op.id)
+				for _, s := range p.sessions {
+					if s.isActive() {
+						s.closeSub(op.Stream)
 					}
 				}
 			}
 
-		case url := <-p.closed:
-			if s, ok := p.dormant[url]; ok {
-				p.dormant[url] = s
-				delete(p.active, url)
-				slog.Warn("relay disconnected", "relay", s.url, "error", s.err)
-			}
-
 		case <-retry.C:
-			for _, old := range p.dormant {
-				// make a new session from the dormant one
-				new := &session{
-					url:        old.url,
-					pool:       p,
-					active:     make(map[string]*Subscription, len(p.streams)),
-					dormant:    make(map[string]*Subscription, len(p.streams)),
-					closed:     make(chan string, 100),
-					operations: make(chan streamOp, 100),
-					done:       make(chan struct{}),
+			for url, s := range p.sessions {
+				if s.isActive() {
+					continue
 				}
 
-				p.active[new.url] = new
-				delete(p.dormant, old.url)
-				go new.run()
+				slog.Debug("session failed, retrying", "relay", url, "error", s.Err())
 
-				// TODO: how to send the streams?
+				// make a new session from the dormant one, and send a copy of all the streams to it.
+				// If the connection attempt will succeed, the new session will open all the subscriptions
+				// for the current pool streams.
+				new := &session{
+					url:        url,
+					pool:       p,
+					subs:       make(map[string]*Subscription, len(p.streams)),
+					operations: make(chan streamOp, max(2*len(p.streams), 100)), // space for current and future operations
+					done:       make(chan struct{}),
+				}
+				p.sessions[url] = new
+
+				for _, stream := range p.streams {
+					new.openSub(stream)
+				}
+				go new.run()
 			}
 		}
 	}
@@ -248,18 +237,10 @@ func (p *Pool) run() {
 // When a subscription is closed by the relay, the session restarts it with a backoff.
 // When the relay disconnects entirely, the session reports back to the Pool and exits.
 type session struct {
-	url   string
-	relay *Relay
+	url string
 
-	// active holds the active subscriptions of this session, keyed by their ID.
-	active map[string]*Subscription
-
-	// dormant holds the inactive subscriptions of this session, keyed by their ID.
-	dormant map[string]*Subscription
-
-	// closed holds the IDs of subscriptions that have received a CLOSED.
-	// The session relay will send to this channel thanks to its onClosed hook.
-	closed chan string
+	// subs holds the subscriptions of this session, keyed by their ID.
+	subs map[string]*Subscription
 
 	// operations receives subscribe/unsubscribe commands from the pool.
 	operations chan streamOp
@@ -272,51 +253,40 @@ type session struct {
 	err       error // holds the disconnection error
 }
 
-func (s *session) close() {
+func (s *session) close(err error) {
 	if s.isClosing.CompareAndSwap(false, true) {
-		if s.relay != nil {
-			s.relay.Close()
-		}
+		s.err = err
 		close(s.done)
 	}
 }
 
-// sendOp sends a stream operation to the session's operations channel.
-// Because sessions are ephemeral entities, this methods doesn't return errors.
-func (s *session) sendOp(op streamOp) {
-	if s.isClosing.Load() {
-		return
-	}
-
-	select {
-	case <-s.done:
-	case s.operations <- op:
-	default:
-		slog.Warn("session sendOp: operations channel full", "session", s.url)
-	}
+// isActive returns true if the session is active.
+func (s *session) isActive() bool {
+	return !s.isClosing.Load()
 }
 
-// notifyClosed notifies the session when a subscription is closed.
-func (s *session) notifyClosed(id string) {
-	if s.isClosing.Load() {
-		return
-	}
-
+// Err returns the error that caused the session to close, or nil if it is still active.
+func (s *session) Err() error {
 	select {
 	case <-s.done:
-	case s.closed <- id:
+		return s.err
+	default:
+		return nil
 	}
 }
 
 func (s *session) run() {
-	defer s.close()
+	if s.pool.isClosing.Load() {
+		s.close(ErrPoolClosed)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	s.relay, s.err = New(ctx, s.url, s.options()...)
-	if s.err != nil {
-		s.pool.notifyClosed(s)
+	relay, err := New(ctx, s.url, s.pool.options...)
+	if err != nil {
+		s.close(err)
 		return
 	}
 
@@ -328,14 +298,14 @@ func (s *session) run() {
 		case <-s.done:
 			return
 
-		case <-s.relay.Done():
-			s.err = s.relay.Err()
-			s.pool.notifyClosed(s)
+		case <-relay.Done():
+			err := relay.Err()
+			s.close(err)
 			return
 
 		case op := <-s.operations:
 			switch op.kind {
-			case kindOpen:
+			case openStream:
 
 				// the subscription re-uses the stream events channel, so
 				// events will be routed by the relay.read() automatically,
@@ -347,72 +317,88 @@ func (s *session) run() {
 					eose:    make(chan struct{}),
 					done:    make(chan struct{}),
 				}
+				s.subs[op.id] = sub
 
-				if err := s.relay.open(sub); err != nil {
-					slog.Error("failed to open subscription", "url", s.url, "id", op.id, "error", err)
-					s.dormant[op.id] = sub
+				if err := relay.open(sub); err != nil {
+					// modify directly the subscription fields, which will be used
+					// to detect a failed subscription in the retry loop below.
+					// It is safe because the subscription hasn't been opened.
+					sub.err = err
+					sub.isClosing.Store(true)
 					continue
 				}
-				s.active[op.id] = sub
 
-			case kindClose:
-				if sub, ok := s.active[op.id]; ok {
-					delete(s.active, op.id)
+			case closeStream:
+				if sub, ok := s.subs[op.id]; ok {
+					delete(s.subs, op.id)
 					sub.Close()
 				}
-
-				if sub, ok := s.dormant[op.id]; ok {
-					delete(s.dormant, op.id)
-					sub.Close()
-				}
-			}
-
-		case id := <-s.closed:
-			if sub, ok := s.active[id]; ok {
-				s.dormant[id] = sub
-				delete(s.active, id)
-				slog.Error("relay closed subscription", "url", s.url, "id", id, "error", sub.Err())
 			}
 
 		case <-retry.C:
-			for _, old := range s.dormant {
-				// make a new subscription and try to open it.
-				// The filters are updated to a since set to the last event, to avoid duplicates
-				new := &Subscription{
-					id:      old.id,
-					filters: withSince(old.filters, old.LastEvent()),
-					events:  old.events,
-					eose:    make(chan struct{}),
-					done:    make(chan struct{}),
-				}
-
-				if err := s.relay.open(new); err != nil {
-					slog.Error("failed to open subscription", "url", s.url, "id", old.id, "error", err)
+			for _, sub := range s.subs {
+				if sub.IsActive() {
 					continue
 				}
 
-				s.active[new.id] = new
-				delete(s.dormant, old.id)
+				slog.Debug("subscription failed, retrying", "relay", s.url, "id", sub.ID(), "error", sub.Err())
+
+				// make a new subscription and try to open it.
+				// To avoid duplicate events, all filters use a since set to the last time
+				// the old subscription reported an event.
+				new := &Subscription{
+					id:      sub.id,
+					filters: withSince(sub.filters, sub.LastEvent()),
+					events:  sub.events,
+					eose:    make(chan struct{}),
+					done:    make(chan struct{}),
+				}
+				s.subs[new.id] = new
+
+				if err := relay.open(new); err != nil {
+					new.err = err
+					new.isClosing.Store(true)
+					continue
+				}
 			}
 		}
 	}
 }
 
-// options returns the relay options.
-// These are copied from the pool, with the expection of the last WithOnClosed option.
-// The WithOnClosed option is fundamental to the session lifecycle, as it's the only way the
-// session can react to subscriptions that have been closed by the relay.
-func (s *session) options() []Option {
-	opts := make([]Option, len(s.pool.options)+1)
-	copy(opts, s.pool.options)
-	opts = append(opts, WithOnClosed(func(id, _ string) { s.notifyClosed(id) }))
-	return opts
+// openSub opens a subscription for the given stream.
+func (s *session) openSub(stream *Stream) {
+	if s.isClosing.Load() {
+		return
+	}
+
+	select {
+	case <-s.done:
+	case s.operations <- streamOp{Stream: stream, kind: openStream}:
+	default:
+		slog.Warn("session openSub failed", "session", s.url, "error", "channel is full")
+	}
 }
 
-// withSince returns a copy of the given filters, with a since field set to the given time.
+// closeSub closes the subscription associated with the given stream.
+func (s *session) closeSub(stream *Stream) {
+	if s.isClosing.Load() {
+		return
+	}
+
+	select {
+	case <-s.done:
+	case s.operations <- streamOp{Stream: stream, kind: closeStream}:
+	default:
+		slog.Warn("session closeSub failed", "session", s.url, "error", "channel is full")
+	}
+}
+
+// withSince returns a deep-copy of the given filters, with a since field set to the given time.
 func withSince(f nostr.Filters, t time.Time) nostr.Filters {
 	c := make(nostr.Filters, len(f))
-	copy(c, f)
+	for i := range f {
+		c[i] = f[i].Clone()
+	}
 
 	unix := t.Unix()
 	if unix <= 0 {

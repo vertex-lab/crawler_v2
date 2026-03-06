@@ -2,7 +2,6 @@ package relays
 
 import (
 	"errors"
-	"log/slog"
 	"sync/atomic"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -66,13 +65,9 @@ func (s *Stream) IsActive() bool {
 // Close closes the stream, releasing resources.
 func (s *Stream) Close() {
 	if s.isClosing.CompareAndSwap(false, true) {
-		err := s.pool.sendOp(streamOp{
-			kind:   kindClose,
-			Stream: s,
-		})
-
-		if err != nil && !errors.Is(err, ErrPoolClosed) {
-			slog.Warn("failed to close stream", "error", err)
+		select {
+		case <-s.pool.done:
+		case s.pool.operations <- streamOp{Stream: s, kind: closeStream}:
 		}
 		close(s.done)
 	}
