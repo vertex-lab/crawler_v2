@@ -56,8 +56,13 @@ func (s *Subscription) Close() {
 }
 
 // LastEvent returns the last time an event was received.
+// If the subscription has never received an event, it returns the zero time.
 func (s *Subscription) LastEvent() time.Time {
-	return time.Unix(s.lastEvent.Load(), 0)
+	t := s.lastEvent.Load()
+	if t == 0 {
+		return time.Time{}
+	}
+	return time.Unix(t, 0)
 }
 
 // Events returns a channel that receives events published by the relay.

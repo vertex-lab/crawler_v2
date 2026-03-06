@@ -57,8 +57,8 @@ func NewPool(urls []string, opts ...Option) (*Pool, error) {
 			url:        url,
 			pool:       p,
 			active:     make(map[string]*Subscription),
-			inactive:   make(map[string]closedSub),
-			dead:       make(chan string, 100),
+			dormant:    make(map[string]*Subscription),
+			closed:     make(chan string, 100),
 			operations: make(chan streamOp, 100),
 			done:       make(chan struct{}),
 		}
@@ -216,11 +216,6 @@ func (p *Pool) run() {
 	}
 }
 
-type closedSub struct {
-	*Subscription
-	lastActive time.Time
-}
-
 // session manages the connection to a single relay and all its subscriptions.
 // When a subscription is closed by the relay, the session restarts it with a backoff.
 // When the relay disconnects entirely, the session reports back to the Pool and exits.
@@ -231,11 +226,12 @@ type session struct {
 	// active holds the active subscriptions of this session, keyed by their ID.
 	active map[string]*Subscription
 
-	// inactive holds the closed subscriptions of this session, keyed by their ID.
-	inactive map[string]closedSub
+	// dormant holds the inactive subscriptions of this session, keyed by their ID.
+	dormant map[string]*Subscription
 
-	// dead holds the IDs of subscriptions that have died and need to be restarted.
-	dead chan string
+	// closed holds the IDs of subscriptions that have received a CLOSED.
+	// The session relay will send to this channel thanks to its onClosed hook.
+	closed chan string
 
 	// operations receives subscribe/unsubscribe commands from the pool.
 	operations chan streamOp
@@ -272,26 +268,26 @@ func (s *session) sendOp(op streamOp) {
 	}
 }
 
-// notifyDeath notifies the session when a subscription dies.
-func (s *session) notifyDeath(id string) {
+// notifyClosed notifies the session when a subscription is closed.
+func (s *session) notifyClosed(id string) {
 	if s.isClosing.Load() {
 		return
 	}
 
 	select {
 	case <-s.done:
-	case s.dead <- id:
+	case s.closed <- id:
 	}
 }
 
-// options returns the session options.
+// options returns the relay options.
 // These are copied from the pool, with the expection of the last WithOnClosed option.
 // The WithOnClosed option is fundamental to the session lifecycle, as it's the only way the
 // session can react to subscriptions that have been closed by the relay.
 func (s *session) options() []Option {
 	opts := make([]Option, len(s.pool.options)+1)
 	copy(opts, s.pool.options)
-	opts = append(opts, WithOnClosed(func(id, reason string) { s.notifyDeath(id) }))
+	opts = append(opts, WithOnClosed(func(id, _ string) { s.notifyClosed(id) }))
 	return opts
 }
 
@@ -337,10 +333,9 @@ func (s *session) run() {
 
 				if err := s.relay.open(sub); err != nil {
 					slog.Error("failed to open subscription", "url", s.url, "id", op.id, "error", err)
-					s.inactive[op.id] = closedSub{Subscription: sub}
+					s.dormant[op.id] = sub
 					continue
 				}
-
 				s.active[op.id] = sub
 
 			case kindClose:
@@ -349,29 +344,25 @@ func (s *session) run() {
 					sub.Close()
 				}
 
-				if sub, ok := s.inactive[op.id]; ok {
-					delete(s.inactive, op.id)
+				if sub, ok := s.dormant[op.id]; ok {
+					delete(s.dormant, op.id)
 					sub.Close()
 				}
 			}
 
-		case id := <-s.dead:
+		case id := <-s.closed:
 			if sub, ok := s.active[id]; ok {
+				s.dormant[id] = sub
 				delete(s.active, id)
-				s.inactive[id] = closedSub{
-					Subscription: sub,
-					lastActive:   time.Now().UTC(),
-				}
-
 				slog.Error("relay closed subscription", "url", s.url, "id", id, "error", sub.Err())
 			}
 
 		case <-retry.C:
-			for _, old := range s.inactive {
+			for _, old := range s.dormant {
 				// make a new subscription with updated filters, and try to open it
 				new := &Subscription{
 					id:      old.id,
-					filters: withSince(old.filters, old.lastActive),
+					filters: withSince(old.filters, old.LastEvent()),
 					events:  old.events,
 					eose:    make(chan struct{}),
 					done:    make(chan struct{}),
@@ -383,7 +374,7 @@ func (s *session) run() {
 				}
 
 				s.active[new.id] = new
-				delete(s.inactive, old.id)
+				delete(s.dormant, old.id)
 			}
 		}
 	}
@@ -394,13 +385,16 @@ func withSince(f nostr.Filters, t time.Time) nostr.Filters {
 	c := make(nostr.Filters, len(f))
 	copy(c, f)
 
-	if t.IsZero() {
+	unix := t.Unix()
+	if unix <= 0 {
+		// don't add a non-positive since to avoid breaking other implementations.
+		// after all, a negative since is the same as no since at all.
 		return c
 	}
 
-	unix := nostr.Timestamp(t.Unix())
 	for i := range c {
-		c[i].Since = &unix
+		ts := nostr.Timestamp(unix) // make a copy to avoid any shared pointer issues
+		c[i].Since = &ts
 	}
 	return c
 }
