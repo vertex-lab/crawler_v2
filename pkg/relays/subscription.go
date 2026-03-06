@@ -20,7 +20,7 @@ var (
 type Subscription struct {
 	id      string
 	filters nostr.Filters
-	relay   *Relay // pointer to the parent relay, useful for the close
+	relay   *T // pointer to the parent relay, useful for the close
 
 	lastEvent atomic.Int64
 	events    chan *nostr.Event

@@ -9,12 +9,12 @@ import (
 )
 
 // TODO: separate between relay options and pool options
-type Option func(*Relay) error
+type Option func(*T) error
 
 // WithAuthKey sets the authentication key, which will be used to sign auth events
 // immediately after receiving an AUTH challenge.
 func WithAuthKey(sk string) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		handler, err := auth.NewHandler(r.url, sk)
 		if err != nil {
 			return err
@@ -26,7 +26,7 @@ func WithAuthKey(sk string) Option {
 
 // WithLogger sets the logger for the relay.
 func WithLogger(l *slog.Logger) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.log = l
 		return nil
 	}
@@ -34,7 +34,7 @@ func WithLogger(l *slog.Logger) Option {
 
 // WithWriteWait sets the write wait duration for the WebSocket connection.
 func WithWriteWait(writeWait time.Duration) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.writeWait = writeWait
 		return nil
 	}
@@ -42,7 +42,7 @@ func WithWriteWait(writeWait time.Duration) Option {
 
 // WithPongWait sets the pong wait duration for the WebSocket connection.
 func WithPongWait(pongWait time.Duration) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.pongWait = pongWait
 		return nil
 	}
@@ -50,7 +50,7 @@ func WithPongWait(pongWait time.Duration) Option {
 
 // WithPingPeriod sets the ping period for the WebSocket connection.
 func WithPingPeriod(pingPeriod time.Duration) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.pingPeriod = pingPeriod
 		return nil
 	}
@@ -59,7 +59,7 @@ func WithPingPeriod(pingPeriod time.Duration) Option {
 // WithMaxMessageSize sets the maximum size (in bytes) of a single incoming websocket message
 // (e.g., a Nostr EVENT or REQ). Messages larger than this will be rejected.
 func WithMaxMessageBytes(s int) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.maxMessageSize = int64(s)
 		return nil
 	}
@@ -67,7 +67,7 @@ func WithMaxMessageBytes(s int) Option {
 
 // WithReadBufferBytes sets the read buffer size (in bytes) for the underlying websocket connection dialer.
 func WithReadBufferBytes(s int) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.dialer.ReadBufferSize = s
 		return nil
 	}
@@ -75,7 +75,7 @@ func WithReadBufferBytes(s int) Option {
 
 // WithWriteBufferBytes sets the write buffer size (in bytes) for the underlying websocket connection dialer.
 func WithWriteBufferBytes(s int) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.dialer.WriteBufferSize = s
 		return nil
 	}
@@ -83,7 +83,7 @@ func WithWriteBufferBytes(s int) Option {
 
 // WithHandshakeTimeout sets the handshake timeout for the underlying websocket connection dialer.
 func WithHandshakeTimeout(d time.Duration) Option {
-	return func(r *Relay) error {
+	return func(r *T) error {
 		r.settings.WS.dialer.HandshakeTimeout = d
 		return nil
 	}

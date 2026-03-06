@@ -25,9 +25,9 @@ var (
 	ErrSubscriptionClosed = errors.New("subscription was closed")
 )
 
-// Relay is a read-only representation of a Nostr relay.
+// T is a read-only representation of a Nostr relay.
 // Create one with New, interact with Query or Subscribe, then call Close to close it.
-type Relay struct {
+type T struct {
 	url      string
 	conn     *ws.Conn
 	requests chan Request
@@ -47,12 +47,12 @@ type Relay struct {
 // New returns a connected Relay.
 // The context is only used to establish the connection; it does not control the lifetime of the relay.
 // Call relay.Close to close the connection and free resources.
-func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
+func New(ctx context.Context, url string, opts ...Option) (*T, error) {
 	if err := ValidateURL(url); err != nil {
 		return nil, err
 	}
 
-	r := &Relay{
+	r := &T{
 		url:      url,
 		requests: make(chan Request, 100),
 		settings: newSettings(),
@@ -79,18 +79,18 @@ func New(ctx context.Context, url string, opts ...Option) (*Relay, error) {
 }
 
 // URL returns the URL of the relay.
-func (r *Relay) URL() string {
+func (r *T) URL() string {
 	return r.url
 }
 
 // Close disconnects the relay, closing all subscriptions and stopping the read and write goroutines.
 // Multiple calls to Close are a no-op.
-func (r *Relay) Close() {
+func (r *T) Close() {
 	r.close(nil)
 }
 
 // close closes the relay with the given error.
-func (r *Relay) close(err error) {
+func (r *T) close(err error) {
 	if r.isClosing.CompareAndSwap(false, true) {
 		r.err = err
 		close(r.done)
@@ -100,14 +100,14 @@ func (r *Relay) close(err error) {
 
 // Done returns a channel that is closed when the relay is disconnected,
 // useful for reacting to relay closures.
-func (r *Relay) Done() <-chan struct{} {
+func (r *T) Done() <-chan struct{} {
 	return r.done
 }
 
 // Err returns the reason for the relay disconnection.
 // If the relay is still alive (Done hasn't fired), or if it was closed with
 // Relay.Close, Err returns nil. Otherwise, it returns the underlying connection error.
-func (r *Relay) Err() error {
+func (r *T) Err() error {
 	// We can't use r.isClosing directly because it would exist
 	// a brief time where the isClosing is true but the err hasn't been set.
 	// Using the channel is safe because we always set the error and then close the channel.
@@ -120,14 +120,14 @@ func (r *Relay) Err() error {
 }
 
 // IsAlive returns true if the relay is still alive (not disconnected).
-func (r *Relay) IsAlive() bool {
+func (r *T) IsAlive() bool {
 	return !r.isClosing.Load()
 }
 
 // open opens a subscription on the relay.
 // This method allows the caller to directly specify the subscription and its channels,
 // allowing for deeper control and the ability to re-use channels across subscriptions.
-func (r *Relay) open(s *Subscription) error {
+func (r *T) open(s *Subscription) error {
 	if s.relay == nil {
 		s.relay = r
 	}
@@ -148,7 +148,7 @@ func (r *Relay) open(s *Subscription) error {
 // Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
 // Callers can read messages using the [Subscription.Events] channel.
 // Callers are responsible for calling [Subscription.Close] when done.
-func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
+func (r *T) Subscribe(id string, filters nostr.Filters) (*Subscription, error) {
 	if r.isClosing.Load() {
 		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
 	}
@@ -174,7 +174,7 @@ func (r *Relay) Subscribe(id string, filters nostr.Filters) (*Subscription, erro
 //
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
-func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
+func (r *T) Query(ctx context.Context, id string, filters nostr.Filters) ([]nostr.Event, error) {
 	if r.isClosing.Load() {
 		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
 	}
@@ -229,7 +229,7 @@ func (r *Relay) Query(ctx context.Context, id string, filters nostr.Filters) ([]
 
 // Send enqueues a request to be sent to the relay.
 // Returns an error if the relay is disconnected or the requests channel is full.
-func (r *Relay) send(request Request) error {
+func (r *T) send(request Request) error {
 	if r.isClosing.Load() {
 		return ErrDisconnected
 	}
@@ -247,7 +247,7 @@ func (r *Relay) send(request Request) error {
 }
 
 // read consumes incoming messages from the websocket connection.
-func (r *Relay) read() {
+func (r *T) read() {
 	r.conn.SetReadLimit(r.settings.WS.maxMessageSize)
 
 	for {
@@ -355,7 +355,7 @@ func (r *Relay) read() {
 
 // write reads from the requests channel and forwards each message to the websocket connection.
 // When done is closed it sends a clean close frame and shuts down the connection.
-func (r *Relay) write() {
+func (r *T) write() {
 	ticker := time.NewTicker(r.settings.WS.pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -394,7 +394,7 @@ func (r *Relay) write() {
 }
 
 // Compare compares two Relay URLs for sorting.
-func Compare(r1, r2 *Relay) int {
+func Compare(r1, r2 *T) int {
 	return cmp.Compare(r1.url, r2.url)
 }
 
@@ -428,12 +428,12 @@ func verify(e *nostr.Event) error {
 	return nil
 }
 
-func (r *Relay) writeMessage(b []byte) error {
+func (r *T) writeMessage(b []byte) error {
 	r.conn.SetWriteDeadline(time.Now().Add(r.settings.WS.writeWait))
 	return r.conn.WriteMessage(ws.TextMessage, b)
 }
 
-func (r *Relay) writeClose() error {
+func (r *T) writeClose() error {
 	return r.conn.WriteControl(
 		ws.CloseMessage,
 		ws.FormatCloseMessage(ws.CloseNormalClosure, ""),
@@ -441,7 +441,7 @@ func (r *Relay) writeClose() error {
 	)
 }
 
-func (r *Relay) writePing() error {
+func (r *T) writePing() error {
 	return r.conn.WriteControl(
 		ws.PingMessage,
 		nil,
