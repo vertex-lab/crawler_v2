@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -19,7 +20,8 @@ type Subscription struct {
 	filters nostr.Filters
 	relay   *Relay // pointer to the parent relay, useful for the close
 
-	events chan *nostr.Event
+	lastEvent atomic.Int64
+	events    chan *nostr.Event
 
 	afterEOSE atomic.Bool
 	eose      chan struct{}
@@ -51,6 +53,11 @@ func (s *Subscription) Close() {
 		}
 		close(s.done)
 	}
+}
+
+// LastEvent returns the last time an event was received.
+func (s *Subscription) LastEvent() time.Time {
+	return time.Unix(s.lastEvent.Load(), 0)
 }
 
 // Events returns a channel that receives events published by the relay.
@@ -175,6 +182,7 @@ func (r *subRouter) Route(id string, e *nostr.Event) error {
 
 	select {
 	case s.events <- e:
+		s.lastEvent.Store(time.Now().Unix())
 		return nil
 	default:
 		return ErrFullSubChannel
