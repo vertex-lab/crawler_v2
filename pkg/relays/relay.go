@@ -36,8 +36,7 @@ type Relay struct {
 	auth *auth.Handler
 	log  *slog.Logger
 
-	// TODO: this could become part of a larger Hooks struct.
-	onClosed func(id string, reason string)
+	// TODO: we could add a Hooks struct
 	settings settings
 
 	isClosing atomic.Bool
@@ -302,9 +301,6 @@ func (r *Relay) read() {
 				continue
 			}
 			r.subs.SignalClosed(closed.ID, closed.Message)
-			if r.onClosed != nil {
-				r.onClosed(closed.ID, closed.Message)
-			}
 
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
