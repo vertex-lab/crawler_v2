@@ -84,9 +84,10 @@ func TestPool(t *testing.T) {
 
 	t.Logf("pool is up and running")
 
+	since := nostr.Timestamp(time.Now().Add(-time.Minute).Unix())
 	filter := nostr.Filter{
 		Kinds: []int{1},
-		Limit: 10,
+		Since: &since,
 	}
 
 	stream, err := pool.Stream("test", filter)

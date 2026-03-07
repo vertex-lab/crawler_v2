@@ -68,7 +68,7 @@ func (s *Stream) Close() {
 	if s.isClosing.CompareAndSwap(false, true) {
 		select {
 		case <-s.pool.done:
-		case s.pool.operations <- streamOp{Stream: s, kind: closeStream}:
+		case s.pool.streamOps <- streamOp{Stream: s, kind: closeOp}:
 		}
 		close(s.done)
 	}
