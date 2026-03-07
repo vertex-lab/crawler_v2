@@ -37,7 +37,7 @@ type T struct {
 	log  *slog.Logger
 
 	// TODO: we could add a Hooks struct
-	settings settings
+	settings relaySettings
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -47,7 +47,7 @@ type T struct {
 // New returns a connected Relay.
 // The context is only used to establish the connection; it does not control the lifetime of the relay.
 // Call relay.Close to close the connection and free resources.
-func New(ctx context.Context, url string, opts ...Option) (*T, error) {
+func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 	if err := ValidateURL(url); err != nil {
 		return nil, err
 	}
@@ -55,14 +55,14 @@ func New(ctx context.Context, url string, opts ...Option) (*T, error) {
 	r := &T{
 		url:      url,
 		requests: make(chan Request, 100),
-		settings: newSettings(),
+		settings: defaultRelaySettings(),
 		subs:     newRouter(true),
 		log:      slog.Default(),
 		done:     make(chan struct{}),
 	}
 
 	for _, opt := range opts {
-		if err := opt(r); err != nil {
+		if err := opt.applyRelay(r); err != nil {
 			return nil, err
 		}
 	}

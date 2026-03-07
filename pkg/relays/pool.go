@@ -28,8 +28,9 @@ type Pool struct {
 	// operations is the channel for subscribe/unsubscribe requests from the caller.
 	operations chan streamOp
 
-	options []Option
-	log     *slog.Logger
+	log      *slog.Logger
+	settings poolSettings
+	options  []RelayOption
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -38,7 +39,7 @@ type Pool struct {
 // NewPool creates a new Pool with the given URLs and options.
 // The context is only used to establish the connections; it does not control the lifetime of the pool.
 // Call pool.Close to close all connections and free resources.
-func NewPool(urls []string, opts ...Option) (*Pool, error) {
+func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	urls = slicex.Unique(urls)
 	for i, url := range urls {
 		if err := ValidateURL(url); err != nil {
@@ -51,8 +52,14 @@ func NewPool(urls []string, opts ...Option) (*Pool, error) {
 		sessions:   make(map[string]*session, len(urls)),
 		operations: make(chan streamOp, 100),
 		log:        slog.Default(),
-		options:    opts,
+		settings:   defaultPoolSettings(),
 		done:       make(chan struct{}),
+	}
+
+	for _, opt := range opts {
+		if err := opt.applyPool(p); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, url := range urls {
@@ -152,7 +159,7 @@ func (p *Pool) send(op streamOp) error {
 }
 
 func (p *Pool) run() {
-	retry := time.NewTicker(10 * time.Minute)
+	retry := time.NewTicker(p.settings.relayRetry)
 	defer retry.Stop()
 
 	for {
@@ -293,7 +300,7 @@ func (s *session) run() {
 	}
 	defer relay.Close()
 
-	retry := time.NewTicker(10 * time.Second)
+	retry := time.NewTicker(s.pool.settings.subRetry)
 	defer retry.Stop()
 
 	for {
