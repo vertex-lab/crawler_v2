@@ -291,6 +291,7 @@ func (s *session) run() {
 		s.close(err)
 		return
 	}
+	defer relay.Close()
 
 	retry := time.NewTicker(10 * time.Second)
 	defer retry.Stop()
