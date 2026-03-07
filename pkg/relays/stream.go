@@ -47,7 +47,8 @@ func (s *Stream) Done() <-chan struct{} {
 }
 
 // Err returns the reason for the stream closure.
-// If the stream is still active (Done hasn't fired), Err returns nil.
+// If the stream is still active (Done hasn't fired), or if it was closed with
+// Stream.Close, Err returns nil.
 func (s *Stream) Err() error {
 	select {
 	case <-s.done:
