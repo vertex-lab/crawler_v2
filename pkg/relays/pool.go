@@ -159,6 +159,9 @@ func (p *Pool) send(op streamOp) error {
 }
 
 func (p *Pool) run() {
+	p.log.Info("relay pool is running")
+	defer p.log.Info("relay pool is shutting down")
+
 	retry := time.NewTicker(p.settings.relayRetry)
 	defer retry.Stop()
 
@@ -299,6 +302,9 @@ func (s *session) run() {
 		return
 	}
 	defer relay.Close()
+
+	s.pool.log.Debug("session is running", "url", s.url)
+	defer s.pool.log.Debug("session is shutting down", "url", s.url)
 
 	retry := time.NewTicker(s.pool.settings.subRetry)
 	defer retry.Stop()

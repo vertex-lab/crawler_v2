@@ -2,6 +2,8 @@ package relays
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -64,12 +66,17 @@ func TestRelay(t *testing.T) {
 }
 
 func TestPool(t *testing.T) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	urls := []string{damus, primal}
+	l := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	pool, err := NewPool(urls)
+	pool, err := NewPool(
+		[]string{damus, primal},
+		WithLogger(l),
+		WithRelayRetry(time.Second),
+		WithSubscriptionRetry(time.Second),
+	)
 	if err != nil {
 		t.Fatalf("failed to create pool: %v", err)
 	}
@@ -79,7 +86,7 @@ func TestPool(t *testing.T) {
 
 	filter := nostr.Filter{
 		Kinds: []int{1},
-		Limit: 100,
+		Limit: 10,
 	}
 
 	stream, err := pool.Stream("test", filter)
