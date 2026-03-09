@@ -27,6 +27,7 @@ var (
 
 // T is a read-only representation of a Nostr relay.
 // Create one with New, interact with Query or Subscribe, then call Close to close it.
+// All methods are safe for concurrent use.
 type T struct {
 	url      string
 	conn     *ws.Conn
@@ -193,16 +194,7 @@ func (r *T) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]no
 	}
 	defer s.Close()
 
-	expected := 0
-	for _, f := range filters {
-		if f.Limit == 0 && !f.LimitZero {
-			expected = 1000 // no limit specified, default to 1000
-			break
-		}
-		expected += int(f.Limit)
-	}
-
-	events := make([]nostr.Event, 0, expected)
+	events := make([]nostr.Event, 0, expectedSize(filters))
 	for {
 		select {
 		case <-ctx.Done():
@@ -426,6 +418,19 @@ func verify(e *nostr.Event) error {
 		return ErrInvalidSignature
 	}
 	return nil
+}
+
+// expectedSize returns the expected number of events that will be returned for the given filters,
+// based on their limits.
+func expectedSize(filters nostr.Filters) int {
+	expected := 0
+	for _, f := range filters {
+		if f.Limit == 0 && !f.LimitZero {
+			return 1000 // no limit specified, default to 1000
+		}
+		expected += int(f.Limit)
+	}
+	return expected
 }
 
 func (r *T) writeMessage(b []byte) error {
