@@ -67,14 +67,7 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	}
 
 	for _, url := range urls {
-		s := &session{
-			url:       url,
-			pool:      p,
-			subs:      make(map[string]*Subscription),
-			streamOps: make(chan streamOp, 100),
-			done:      make(chan struct{}),
-		}
-
+		s := p.newSession(url)
 		p.sessions[url] = s
 		go s.run()
 	}
@@ -225,7 +218,25 @@ func (p *Pool) sendRelay(op relayOp) error {
 	}
 }
 
+// cleanup clears all active sessions and streams.
+func (p *Pool) cleanup() {
+	for _, s := range p.sessions {
+		s.close(nil)
+	}
+	clear(p.sessions)
+
+	for _, s := range p.streams {
+		if s.isClosing.CompareAndSwap(false, true) {
+			s.err = ErrPoolClosed
+			close(s.done)
+		}
+	}
+	clear(p.streams)
+}
+
 func (p *Pool) run() {
+	defer p.cleanup()
+
 	p.log.Info("relay pool is running")
 	defer p.log.Info("relay pool is shutting down")
 
@@ -233,20 +244,12 @@ func (p *Pool) run() {
 	defer retry.Stop()
 
 	for {
+		if p.isClosing.Load() {
+			return
+		}
+
 		select {
 		case <-p.done:
-			for _, s := range p.sessions {
-				s.close(nil)
-			}
-			clear(p.sessions)
-
-			for _, s := range p.streams {
-				if s.isClosing.CompareAndSwap(false, true) {
-					s.err = ErrPoolClosed
-					close(s.done)
-				}
-			}
-			clear(p.streams)
 			return
 
 		case op := <-p.relayOps:
@@ -256,15 +259,12 @@ func (p *Pool) run() {
 					continue
 				}
 
-				s := &session{
-					url:       op.url,
-					pool:      p,
-					subs:      make(map[string]*Subscription),
-					streamOps: make(chan streamOp, 100),
-					done:      make(chan struct{}),
-				}
-
+				s := p.newSession(op.url)
 				p.sessions[op.url] = s
+
+				for _, stream := range p.streams {
+					s.openSub(stream)
+				}
 				go s.run()
 
 			case closeOp:
@@ -315,17 +315,7 @@ func (p *Pool) run() {
 				}
 
 				p.log.Debug("session failed, retrying", "relay", url, "error", s.Err())
-
-				// make a new session from the dormant one, and send a copy of all the streams to it.
-				// If the connection attempt will succeed, the new session will open all the subscriptions
-				// for the current pool streams.
-				new := &session{
-					url:       url,
-					pool:      p,
-					subs:      make(map[string]*Subscription, len(p.streams)),
-					streamOps: make(chan streamOp, max(2*len(p.streams), 100)), // space for current and future streamOps
-					done:      make(chan struct{}),
-				}
+				new := p.newSession(url)
 				p.sessions[url] = new
 
 				for _, stream := range p.streams {
@@ -355,6 +345,19 @@ type session struct {
 	isClosing atomic.Bool
 	done      chan struct{}
 	err       error // holds the disconnection error
+}
+
+// newSession creates a new session for the given relay URL.
+// It initialized the streamOps channel with a buffer that is large enough to hold
+// the current number of streams and extra, to avoid blocking on streamOps.
+func (p *Pool) newSession(url string) *session {
+	return &session{
+		url:       url,
+		pool:      p,
+		subs:      make(map[string]*Subscription, len(p.streams)),
+		streamOps: make(chan streamOp, max(2*len(p.streams), 100)), // space for current and future streamOps
+		done:      make(chan struct{}),
+	}
 }
 
 func (s *session) close(err error) {
@@ -402,6 +405,10 @@ func (s *session) run() {
 	defer retry.Stop()
 
 	for {
+		if s.isClosing.Load() {
+			return
+		}
+
 		select {
 		case <-s.done:
 			return
