@@ -176,6 +176,25 @@ func (o maxMessageOption) applyPool(p *Pool) error {
 	return nil
 }
 
+// WithDialer sets the websocket dialer for the relay and pool.
+func WithDialer(d websocket.Dialer) commonOption {
+	return dialerOption{d: d}
+}
+
+type dialerOption struct {
+	d websocket.Dialer
+}
+
+func (o dialerOption) applyRelay(r *T) error {
+	r.settings.WS.dialer = o.d
+	return nil
+}
+
+func (o dialerOption) applyPool(p *Pool) error {
+	p.options = append(p.options, o)
+	return nil
+}
+
 // WithReadBufferBytes sets the read buffer size (in bytes) for the underlying websocket connection dialer.
 func WithReadBufferBytes(s int) commonOption {
 	return readBufferOption{s: s}
