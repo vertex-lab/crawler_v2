@@ -83,7 +83,7 @@ func (s *Subscription) IsLive() bool {
 	return s.afterEOSE.Load()
 }
 
-// IsActive returns true if the subscription is still active.
+// IsActive returns true if the subscription is still active (not closing).
 func (s *Subscription) IsActive() bool {
 	return !s.isClosing.Load()
 }

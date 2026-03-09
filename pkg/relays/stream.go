@@ -58,7 +58,7 @@ func (s *Stream) Err() error {
 	}
 }
 
-// IsActive returns true if the stream is still active.
+// IsActive returns true if the stream is still active (not closing).
 func (s *Stream) IsActive() bool {
 	return !s.isClosing.Load()
 }
