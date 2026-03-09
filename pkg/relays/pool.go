@@ -2,6 +2,7 @@ package relays
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,27 +11,33 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
+	"github.com/pippellia-btc/smallset"
 )
 
 var (
 	ErrPoolClosed = fmt.Errorf("pool is closed")
+	ErrNoRelays   = fmt.Errorf("no relays available")
 )
 
-// Pool manages a set of relay connections and presents a unified streaming
-// API to the caller. It owns the desired stream state and is responsible
-// for maintaining it across relay disconnections and subscription closures.
+// Pool manages a set of relay connections and presents a unified API to the caller.
+// It maintains the desired subscription state, handling relay disconnections and subscription closures.
 type Pool struct {
-	// The currently active streams, keyed by their ID.
-	streams map[string]*Stream
+	// streamIDs holds the IDs of all streams that were ever opened by this pool.
+	// The session reconnection logic needs the guarantee that stream IDs are unique, otherwise we might have:
+	// - session is running
+	// - stream with "ID" is opened
+	// - session stops running
+	// - stream with "ID" is closed
+	// - another stream with the same "ID" is opened
+	mu        sync.Mutex
+	streamIDs smallset.Ordered[string]
 
-	// active holds the pool sessions, keyed by their relay URL.
-	sessions map[string]*session
-
-	// streamOps is the channel for opening/closing streams.
+	streams   map[string]*Stream
 	streamOps chan streamOp
 
-	// relayOps is the channel for adding/removing relays from the pool.
-	relayOps chan relayOp
+	sessions   map[string]*session
+	sessionOps chan sessionOp
+	view       chan chan relayView // holds the reply channel for relay views
 
 	log      *slog.Logger
 	settings poolSettings
@@ -53,13 +60,14 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	}
 
 	p := &Pool{
-		streams:   make(map[string]*Stream),
-		sessions:  make(map[string]*session, len(urls)),
-		streamOps: make(chan streamOp, 100),
-		relayOps:  make(chan relayOp, 100),
-		log:       slog.Default(),
-		settings:  defaultPoolSettings(),
-		done:      make(chan struct{}),
+		streams:    make(map[string]*Stream),
+		streamOps:  make(chan streamOp, 100),
+		sessions:   make(map[string]*session, len(urls)),
+		sessionOps: make(chan sessionOp, 100),
+		view:       make(chan chan relayView, 100),
+		log:        slog.Default(),
+		settings:   defaultPoolSettings(),
+		done:       make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -73,9 +81,14 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 		p.sessions[url] = s
 		go s.run()
 	}
-
 	go p.run()
 	return p, nil
+}
+
+// relayView represents a snapshot of the pool's connected and disconnected relays.
+type relayView struct {
+	connected    []*T
+	disconnected []*T
 }
 
 // Close closes the pool and all the underlying relay connections.
@@ -83,6 +96,53 @@ func (p *Pool) Close() {
 	if p.isClosing.CompareAndSwap(false, true) {
 		close(p.done)
 		p.wg.Wait()
+	}
+}
+
+// Relays returns a snapshot of the currently connected and disconnected relay URLs in the pool.
+func (p *Pool) Relays() (connected, disconnected []string) {
+	// don't want to expose a ctx for such a simple operation, so I use a sensible default
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	view, err := p.relays(ctx)
+	if err != nil {
+		p.log.Error("pool.Relays() failed", "error", err)
+		return nil, nil
+	}
+
+	connected = make([]string, len(view.connected))
+	for i, r := range view.connected {
+		connected[i] = r.URL()
+	}
+
+	disconnected = make([]string, len(view.disconnected))
+	for i, r := range view.disconnected {
+		disconnected[i] = r.URL()
+	}
+	return connected, disconnected
+}
+
+// relays returns a snapshot of the currently connected and disconnected relays in the pool.
+func (p *Pool) relays(ctx context.Context) (relayView, error) {
+	relays := make(chan relayView, 1)
+	select {
+	case <-ctx.Done():
+		return relayView{}, ctx.Err()
+	case <-p.done:
+		return relayView{}, ErrPoolClosed
+	case p.view <- relays:
+	default:
+		return relayView{}, ErrSendFailed
+	}
+
+	select {
+	case <-ctx.Done():
+		return relayView{}, ctx.Err()
+	case <-p.done:
+		return relayView{}, ErrPoolClosed
+	case view := <-relays:
+		return view, nil
 	}
 }
 
@@ -94,6 +154,14 @@ func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 	}
 
+	p.mu.Lock()
+	if p.streamIDs.Contains(id) {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("failed to create stream: %w", ErrDuplicateStream)
+	}
+	p.streamIDs.Add(id)
+	p.mu.Unlock()
+
 	s := &Stream{
 		id:      id,
 		filters: filters,
@@ -102,26 +170,79 @@ func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 		done:    make(chan struct{}),
 	}
 
-	op := streamOp{
-		Stream: s,
-		kind:   openOp,
-		reply:  make(chan error, 1),
-	}
-
-	if err := p.sendStream(op); err != nil {
-		return nil, fmt.Errorf("failed to create stream: %w", err)
-	}
-
 	select {
 	case <-p.done:
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 
-	case err := <-op.reply:
-		if err != nil {
-			return nil, fmt.Errorf("failed to create stream: %w", err)
-		}
+	case p.streamOps <- streamOp{Stream: s, close: false}:
 		return s, nil
+
+	default:
+		return nil, fmt.Errorf("failed to create stream: %w", ErrSendFailed)
 	}
+}
+
+// steamOp represents an operation that modifies the pool's streams.
+type streamOp struct {
+	*Stream
+	close bool // open = !close
+}
+
+// Query concurrently queries all connected relays for events matching the given filters.
+// Errors are joined together using [errors.Join], and events are always returned even if errors occur.
+//
+// It is always recommended to use this method with a context timeout (e.g. 10s),
+// to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
+func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]nostr.Event, error) {
+	if p.isClosing.Load() {
+		return nil, fmt.Errorf("failed to query: %w", ErrPoolClosed)
+	}
+
+	p.mu.Lock()
+	isDuplicate := p.streamIDs.Contains(id)
+	p.mu.Unlock()
+
+	if isDuplicate {
+		return nil, fmt.Errorf("failed to query: %w", ErrDuplicateStream)
+	}
+
+	relays, err := p.relays(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
+	}
+
+	if len(relays.connected) == 0 {
+		return nil, fmt.Errorf("failed to query: %w", ErrNoRelays)
+	}
+
+	type result struct {
+		events []nostr.Event
+		err    error
+	}
+
+	results := make(chan result, len(relays.connected))
+	wg := sync.WaitGroup{}
+
+	for _, r := range relays.connected {
+		wg.Add(1)
+		go func(r *T) {
+			defer wg.Done()
+			events, err := r.Query(ctx, id, filters...)
+			results <- result{events, err}
+		}(r)
+	}
+
+	wg.Wait()
+	close(results)
+
+	events := make([]nostr.Event, 0, len(relays.connected)*expectedSize(filters))
+
+	for r := range results {
+		// TODO: perform deduplication and keep the last replaceable and addressable event only.
+		err = errors.Join(err, r.err)
+		events = append(events, r.events...)
+	}
+	return events, nil
 }
 
 // Add adds a relay URL to the pool.
@@ -131,15 +252,16 @@ func (p *Pool) Add(url string) error {
 		return fmt.Errorf("failed to add relay: %w", err)
 	}
 
-	op := relayOp{
-		kind: openOp,
-		url:  url,
-	}
+	select {
+	case <-p.done:
+		return fmt.Errorf("failed to add relay: %w", ErrPoolClosed)
 
-	if err := p.sendRelay(op); err != nil {
-		return fmt.Errorf("failed to add relay: %w", err)
+	case p.sessionOps <- sessionOp{url: url, remove: false}:
+		return nil
+
+	default:
+		return fmt.Errorf("failed to add relay: %w", ErrSendFailed)
 	}
-	return nil
 }
 
 // Remove removes a relay URL from the pool.
@@ -150,81 +272,28 @@ func (p *Pool) Remove(url string) error {
 		return fmt.Errorf("failed to add relay: %w", err)
 	}
 
-	op := relayOp{
-		kind: closeOp,
-		url:  url,
-	}
-
-	if err := p.sendRelay(op); err != nil {
-		return fmt.Errorf("failed to add relay: %w", err)
-	}
-	return nil
-}
-
-type opKind int
-
-const (
-	openOp  opKind = 0 // opening operation
-	closeOp opKind = 1 // closing operation
-)
-
-// streamOp represents an operation to be performed on a stream, including
-// the stream itself and an optional channel to receive the result.
-type streamOp struct {
-	*Stream
-	kind  opKind
-	reply chan error
-}
-
-// sendStream sends a stream operation to the pool's streamOps channel.
-// It returns an error if the pool is closed or if the send fails due to backpressure.
-func (p *Pool) sendStream(op streamOp) error {
-	if p.isClosing.Load() {
-		return ErrPoolClosed
-	}
-
 	select {
 	case <-p.done:
-		return ErrPoolClosed
+		return fmt.Errorf("failed to remove relay: %w", ErrPoolClosed)
 
-	case p.streamOps <- op:
+	case p.sessionOps <- sessionOp{url: url, remove: true}:
 		return nil
 
 	default:
-		return ErrSendFailed
+		return fmt.Errorf("failed to remove relay: %w", ErrSendFailed)
 	}
 }
 
-// relayOp represents an operation to be performed on a relay, including
-// the relay URL and an optional channel to receive the result.
-type relayOp struct {
-	kind opKind
-	url  string
-}
-
-// sendRelay sends a relay operation to the pool's relayOps channel.
-// It returns an error if the pool is closed or if the send fails due to backpressure.
-func (p *Pool) sendRelay(op relayOp) error {
-	if p.isClosing.Load() {
-		return ErrPoolClosed
-	}
-
-	select {
-	case <-p.done:
-		return ErrPoolClosed
-
-	case p.relayOps <- op:
-		return nil
-
-	default:
-		return ErrSendFailed
-	}
+// sessionOp represents an operation that modifies the pool's sessions.
+type sessionOp struct {
+	url    string
+	remove bool // add = !remove
 }
 
 // cleanup clears all active sessions and streams.
 func (p *Pool) cleanup() {
 	for _, s := range p.sessions {
-		s.close(nil)
+		s.Close(ErrPoolClosed)
 	}
 	clear(p.sessions)
 
@@ -255,61 +324,64 @@ func (p *Pool) run() {
 		case <-p.done:
 			return
 
-		case op := <-p.relayOps:
-			switch op.kind {
-			case openOp:
-				if _, ok := p.sessions[op.url]; ok {
-					continue
-				}
-
-				s := p.newSession(op.url)
-				p.sessions[op.url] = s
-
-				for _, stream := range p.streams {
-					s.openSub(stream)
-				}
-				go s.run()
-
-			case closeOp:
-				if s, ok := p.sessions[op.url]; ok {
-					s.close(nil)
-					delete(p.sessions, op.url)
-				}
-			}
-
 		case op := <-p.streamOps:
-			switch op.kind {
-			case openOp:
-				if _, ok := p.streams[op.id]; ok {
-					if op.reply != nil {
-						op.reply <- ErrDuplicateStream
-					}
-					continue
-				}
-
-				p.streams[op.id] = op.Stream
-				if op.reply != nil {
-					op.reply <- nil
-				}
-
-				for _, s := range p.sessions {
-					if s.isActive() {
-						s.openSub(op.Stream)
-					}
-				}
-
-			case closeOp:
-				if _, ok := p.streams[op.id]; !ok {
-					continue
-				}
-
+			if op.close {
 				delete(p.streams, op.id)
 				for _, s := range p.sessions {
 					if s.isActive() {
-						s.closeSub(op.Stream)
+						s.closeSub(op.id)
 					}
 				}
+				continue
 			}
+
+			p.streams[op.id] = op.Stream
+			for _, s := range p.sessions {
+				if s.isActive() {
+					s.openSub(op.id, op.filters, op.events)
+				}
+			}
+
+		case op := <-p.sessionOps:
+			if op.remove {
+				if s, ok := p.sessions[op.url]; ok {
+					s.Close(nil)
+					delete(p.sessions, op.url)
+				}
+				continue
+			}
+
+			if _, ok := p.sessions[op.url]; ok {
+				continue
+			}
+
+			s := p.newSession(op.url)
+			p.sessions[op.url] = s
+
+			for _, stream := range p.streams {
+				s.openSub(stream.id, stream.filters, stream.events)
+			}
+			go s.run()
+
+		case reply := <-p.view:
+			view := relayView{
+				connected:    make([]*T, 0, len(p.sessions)),
+				disconnected: make([]*T, 0, len(p.sessions)),
+			}
+
+			for _, s := range p.sessions {
+				relay := s.relay.Load()
+				if relay == nil {
+					continue
+				}
+
+				if s.isActive() {
+					view.connected = append(view.connected, relay)
+				} else {
+					view.disconnected = append(view.disconnected, relay)
+				}
+			}
+			reply <- view
 
 		case <-retry.C:
 			for url, s := range p.sessions {
@@ -317,12 +389,22 @@ func (p *Pool) run() {
 					continue
 				}
 
-				p.log.Debug("session failed, retrying", "relay", url, "error", s.Err())
+				if err := s.Err(); err != nil {
+					p.log.Debug("session failed", "relay", url, "error", s.Err())
+				}
+
 				new := p.newSession(url)
 				p.sessions[url] = new
 
 				for _, stream := range p.streams {
-					new.openSub(stream)
+					// to avoid duplicate events, retry each subscription where the filters' since
+					// reflects the last event of the old subscription.
+					// This is possible because the streamIDs are globally unique thanks to pool.streamIDs
+					var lastEvent time.Time
+					if sub, ok := s.subs[stream.id]; ok {
+						lastEvent = sub.LastEvent()
+					}
+					new.openSub(stream.id, withSince(stream.filters, lastEvent), stream.events)
 				}
 				go new.run()
 			}
@@ -331,18 +413,15 @@ func (p *Pool) run() {
 }
 
 // session manages the connection to a single relay and all its subscriptions.
-// When a subscription is closed by the relay, the session restarts it with a backoff.
+// It periodically retries subscriptions that are closed by the relay.
 // When the relay disconnects entirely, the session reports back to the Pool and exits.
 type session struct {
-	url string
+	url   string
+	relay atomic.Pointer[T]
 
-	// subs holds the subscriptions of this session, keyed by their ID.
-	subs map[string]*Subscription
+	subs   map[string]*Subscription
+	subOps chan subOp
 
-	// streamOps receives subscribe/unsubscribe commands from the pool.
-	streamOps chan streamOp
-
-	// pool is the pool this session belongs to.
 	pool *Pool
 
 	isClosing atomic.Bool
@@ -350,20 +429,28 @@ type session struct {
 	err       error // holds the disconnection error
 }
 
+// subOp represents an operation that modifies the session subscriptions.
+type subOp struct {
+	id      string
+	filters nostr.Filters
+	events  chan *nostr.Event
+	close   bool // open = !close
+}
+
 // newSession creates a new session for the given relay URL.
-// It initialized the streamOps channel with a buffer that is large enough to hold
-// the current number of streams and extra, to avoid blocking on streamOps.
+// To avoid blocking on the channel send, it initializes the open channel with a buffer
+// that is large enough to hold the current number of streams plus extra.
 func (p *Pool) newSession(url string) *session {
 	return &session{
-		url:       url,
-		pool:      p,
-		subs:      make(map[string]*Subscription, len(p.streams)),
-		streamOps: make(chan streamOp, max(2*len(p.streams), 100)), // space for current and future streamOps
-		done:      make(chan struct{}),
+		url:    url,
+		pool:   p,
+		subs:   make(map[string]*Subscription, len(p.streams)),
+		subOps: make(chan subOp, max(2*len(p.streams), 100)), // space for current and future streams
+		done:   make(chan struct{}),
 	}
 }
 
-func (s *session) close(err error) {
+func (s *session) Close(err error) {
 	if s.isClosing.CompareAndSwap(false, true) {
 		s.err = err
 		close(s.done)
@@ -375,7 +462,7 @@ func (s *session) isActive() bool {
 	return !s.isClosing.Load()
 }
 
-// Err returns the error that caused the session to close, or nil if it is still active.
+// Err returns the error that caused the session to close, or nil if it's still active.
 func (s *session) Err() error {
 	select {
 	case <-s.done:
@@ -390,18 +477,17 @@ func (s *session) run() {
 	defer s.pool.wg.Done()
 
 	if s.pool.isClosing.Load() {
-		s.close(ErrPoolClosed)
+		// fast path disconnect to avoid connection attempts during shutdown
+		s.Close(ErrPoolClosed)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	relay, err := New(ctx, s.url, s.pool.options...)
+	relay, err := New(context.Background(), s.url, s.pool.options...)
 	if err != nil {
-		s.close(err)
+		s.Close(err)
 		return
 	}
+	s.relay.Store(relay)
 	defer relay.Close()
 
 	s.pool.log.Debug("session is running", "url", s.url)
@@ -420,97 +506,91 @@ func (s *session) run() {
 			return
 
 		case <-relay.Done():
-			err := relay.Err()
-			s.close(err)
+			s.Close(relay.Err())
 			return
 
-		case op := <-s.streamOps:
-			switch op.kind {
-			case openOp:
-
-				// the subscription re-uses the stream events channel, so
-				// events will be routed by the relay.read() automatically,
-				// without the need to manually forward them.
-				sub := &Subscription{
-					id:      op.Stream.id,
-					filters: op.Stream.filters,
-					events:  op.Stream.events,
-					eose:    make(chan struct{}),
-					done:    make(chan struct{}),
-				}
-				s.subs[op.id] = sub
-
-				if err := relay.open(sub); err != nil {
-					// modify directly the subscription fields, which will be used
-					// to detect a failed subscription in the retry loop below.
-					// It is safe because the subscription hasn't been opened.
-					sub.err = err
-					sub.isClosing.Store(true)
-					continue
-				}
-
-			case closeOp:
+		case op := <-s.subOps:
+			if op.close {
 				if sub, ok := s.subs[op.id]; ok {
 					delete(s.subs, op.id)
 					sub.Close()
 				}
+				continue
+			}
+
+			sub := &Subscription{
+				id:      op.id,
+				filters: op.filters,
+				events:  op.events,
+				eose:    make(chan struct{}),
+				done:    make(chan struct{}),
+			}
+			s.subs[sub.id] = sub
+
+			if err := relay.open(sub); err != nil {
+				// mark subscription as closed so it can be retried
+				sub.isClosing.Store(true)
+				s.pool.log.Debug("opening subscription failed", "relay", s.url, "id", sub.ID(), "error", err)
+				continue
 			}
 
 		case <-retry.C:
-			for _, sub := range s.subs {
+			for id, sub := range s.subs {
 				if sub.IsActive() {
 					continue
 				}
 
-				s.pool.log.Debug("subscription failed, retrying", "relay", s.url, "id", sub.ID(), "error", sub.Err())
+				if err := sub.Err(); err != nil {
+					s.pool.log.Debug("subscription failed", "relay", s.url, "id", sub.ID(), "error", err)
+				}
 
 				// make a new subscription and try to open it.
 				// To avoid duplicate events, all filters use a since set to the last time
 				// the old subscription reported an event.
 				new := &Subscription{
-					id:      sub.id,
+					id:      id,
 					filters: withSince(sub.filters, sub.LastEvent()),
 					events:  sub.events,
 					eose:    make(chan struct{}),
 					done:    make(chan struct{}),
 				}
-				s.subs[new.id] = new
 
 				if err := relay.open(new); err != nil {
-					new.err = err
-					new.isClosing.Store(true)
+					s.pool.log.Debug("opening subscription failed", "relay", s.url, "id", id, "error", err)
 					continue
 				}
+
+				// if it works, update the subscription in the map, othwerwise keep the old
+				// because it has the correct LastEvent timestamp.
+				s.subs[id] = new
 			}
 		}
 	}
 }
 
-// openSub opens a subscription for the given stream.
-func (s *session) openSub(stream *Stream) {
+// openSub opens a subscription from the given stream.
+func (s *session) openSub(id string, filters nostr.Filters, events chan *nostr.Event) {
 	if s.isClosing.Load() {
 		return
 	}
 
 	select {
 	case <-s.done:
-	case s.streamOps <- streamOp{Stream: stream, kind: openOp}:
+	case s.subOps <- subOp{id: id, filters: filters, events: events, close: false}:
 	default:
-		s.pool.log.Warn("session openSub failed", "session", s.url, "error", "channel is full")
+		s.pool.log.Warn("session open subscription failed", "session", s.url, "error", "channel is full")
 	}
 }
 
-// closeSub closes the subscription associated with the given stream.
-func (s *session) closeSub(stream *Stream) {
+// closeSub closes the subscription associated with the given ID.
+func (s *session) closeSub(id string) {
 	if s.isClosing.Load() {
 		return
 	}
 
 	select {
 	case <-s.done:
-	case s.streamOps <- streamOp{Stream: stream, kind: closeOp}:
-	default:
-		s.pool.log.Warn("session closeSub failed", "session", s.url, "error", "channel is full")
+	case s.subOps <- subOp{id: id, close: true}:
 	}
 }
 

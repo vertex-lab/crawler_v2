@@ -15,9 +15,9 @@ var (
 type Stream struct {
 	id      string
 	filters nostr.Filters
-	pool    *Pool
+	events  chan *nostr.Event
 
-	events chan *nostr.Event
+	pool *Pool
 
 	isClosing atomic.Bool
 	done      chan struct{}
@@ -68,7 +68,7 @@ func (s *Stream) Close() {
 	if s.isClosing.CompareAndSwap(false, true) {
 		select {
 		case <-s.pool.done:
-		case s.pool.streamOps <- streamOp{Stream: s, kind: closeOp}:
+		case s.pool.streamOps <- streamOp{Stream: s, close: true}:
 		}
 		close(s.done)
 	}
