@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,7 @@ type Pool struct {
 	settings poolSettings
 	options  []RelayOption
 
+	wg        sync.WaitGroup
 	isClosing atomic.Bool
 	done      chan struct{}
 }
@@ -80,6 +82,7 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 func (p *Pool) Close() {
 	if p.isClosing.CompareAndSwap(false, true) {
 		close(p.done)
+		p.wg.Wait()
 	}
 }
 
@@ -383,6 +386,9 @@ func (s *session) Err() error {
 }
 
 func (s *session) run() {
+	s.pool.wg.Add(1)
+	defer s.pool.wg.Done()
+
 	if s.pool.isClosing.Load() {
 		s.close(ErrPoolClosed)
 		return
