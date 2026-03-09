@@ -118,44 +118,6 @@ func (o writeWaitOption) applyPool(p *Pool) error {
 	return nil
 }
 
-// WithPongWait sets the pong wait duration for the WebSocket connection.
-func WithPongWait(pongWait time.Duration) commonOption {
-	return pongWaitOption{d: pongWait}
-}
-
-type pongWaitOption struct {
-	d time.Duration
-}
-
-func (o pongWaitOption) applyRelay(r *T) error {
-	r.settings.WS.pongWait = o.d
-	return nil
-}
-
-func (o pongWaitOption) applyPool(p *Pool) error {
-	p.options = append(p.options, o)
-	return nil
-}
-
-// WithPingPeriod sets the ping period for the WebSocket connection.
-func WithPingPeriod(pingPeriod time.Duration) commonOption {
-	return pingPeriodOption{d: pingPeriod}
-}
-
-type pingPeriodOption struct {
-	d time.Duration
-}
-
-func (o pingPeriodOption) applyRelay(r *T) error {
-	r.settings.WS.pingPeriod = o.d
-	return nil
-}
-
-func (o pingPeriodOption) applyPool(p *Pool) error {
-	p.options = append(p.options, o)
-	return nil
-}
-
 // WithMaxMessageSize sets the maximum size (in bytes) of a single incoming websocket message
 // (e.g., a Nostr EVENT or REQ). Messages larger than this will be rejected.
 func WithMaxMessageBytes(s int) commonOption {
@@ -265,8 +227,6 @@ func defaultRelaySettings() relaySettings {
 type websocketSettings struct {
 	dialer         websocket.Dialer
 	writeWait      time.Duration
-	pongWait       time.Duration
-	pingPeriod     time.Duration
 	maxMessageSize int64
 }
 
@@ -278,8 +238,6 @@ func defaultWSSettings() websocketSettings {
 			HandshakeTimeout: 10 * time.Second,
 		},
 		writeWait:      10 * time.Second,
-		pongWait:       60 * time.Second,
-		pingPeriod:     45 * time.Second,
 		maxMessageSize: 500_000,
 	}
 }

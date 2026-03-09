@@ -348,11 +348,7 @@ func (r *T) read() {
 // write reads from the requests channel and forwards each message to the websocket connection.
 // When done is closed it sends a clean close frame and shuts down the connection.
 func (r *T) write() {
-	ticker := time.NewTicker(r.settings.WS.pingPeriod)
-	defer func() {
-		ticker.Stop()
-		r.conn.Close()
-	}()
+	defer r.conn.Close()
 
 	for {
 		select {
@@ -370,14 +366,6 @@ func (r *T) write() {
 			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
 					r.log.Error("unexpected error when attemping to write", "error", err)
-				}
-				continue
-			}
-
-		case <-ticker.C:
-			if err := r.writePing(); err != nil {
-				if isUnexpectedClose(err) {
-					r.log.Error("unexpected error when attemping to ping", "error", err)
 				}
 				continue
 			}
