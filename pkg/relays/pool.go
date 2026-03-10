@@ -361,7 +361,7 @@ type streamOp struct {
 // cleanup clears all active sessions and streams.
 func (p *Pool) cleanup() {
 	for _, s := range p.sessions {
-		s.Close(ErrPoolClosed)
+		s.close()
 	}
 	clear(p.sessions)
 
@@ -413,7 +413,7 @@ func (p *Pool) run() {
 		case op := <-p.sessionOps:
 			if op.remove {
 				if s, ok := p.sessions[op.url]; ok {
-					s.Close(nil)
+					s.close()
 					delete(p.sessions, op.url)
 				}
 				continue
@@ -457,17 +457,13 @@ func (p *Pool) run() {
 					continue
 				}
 
-				if err := s.Err(); err != nil {
-					p.log.Debug("session failed", "relay", url, "error", s.Err())
-				}
-
 				new := p.newSession(url)
 				p.sessions[url] = new
 
 				for _, stream := range p.streams {
 					// to avoid duplicate events, retry each subscription with filters whose since
 					// reflects the last event of the old subscription.
-					// This is possible because the streamIDs are globally unique thanks to pool.streamIDs
+					// This is possible because the IDs are globally unique thanks to pool.streamIDs
 					var lastEvent time.Time
 					if sub, ok := s.subs[stream.id]; ok {
 						lastEvent = sub.LastEvent()
@@ -518,9 +514,8 @@ func (p *Pool) newSession(url string) *session {
 	}
 }
 
-func (s *session) Close(err error) {
+func (s *session) close() {
 	if s.isClosing.CompareAndSwap(false, true) {
-		s.err = err
 		close(s.done)
 	}
 }
@@ -546,20 +541,21 @@ func (s *session) run() {
 
 	if s.pool.isClosing.Load() {
 		// fast path disconnect to avoid connection attempts during shutdown
-		s.Close(ErrPoolClosed)
+		s.close()
 		return
 	}
 
 	relay, err := New(context.Background(), s.url, s.pool.options...)
 	if err != nil {
-		s.Close(err)
+		s.pool.log.Debug("relay connection failed", "relay", s.url, "error", err)
+		s.close()
 		return
 	}
 	s.relay.Store(relay)
 	defer relay.Close()
 
-	s.pool.log.Debug("session is running", "url", s.url)
-	defer s.pool.log.Debug("session is shutting down", "url", s.url)
+	s.pool.log.Debug("session is running", "relay", s.url)
+	defer s.pool.log.Debug("session is shutting down", "relay", s.url)
 
 	retry := time.NewTicker(s.pool.settings.subRetry)
 	defer retry.Stop()
@@ -574,7 +570,8 @@ func (s *session) run() {
 			return
 
 		case <-relay.Done():
-			s.Close(relay.Err())
+			s.pool.log.Debug("relay disconnected", "relay", s.url, "error", relay.Err())
+			s.close()
 			return
 
 		case op := <-s.subOps:
@@ -596,7 +593,7 @@ func (s *session) run() {
 			s.subs[sub.id] = sub
 
 			if err := relay.open(sub); err != nil {
-				// mark subscription as closed so it can be retried
+				// mark subscription as closed so it can be retried later
 				sub.isClosing.Store(true)
 				s.pool.log.Debug("opening subscription failed", "relay", s.url, "id", sub.ID(), "error", err)
 				continue
@@ -610,6 +607,7 @@ func (s *session) run() {
 
 				if err := sub.Err(); err != nil {
 					s.pool.log.Debug("subscription failed", "relay", s.url, "id", sub.ID(), "error", err)
+					sub.err = nil // avoid logging the same error repeatedly
 				}
 
 				// make a new subscription and try to open it.
