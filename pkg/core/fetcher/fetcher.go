@@ -63,6 +63,20 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 	slog.Info("Fetcher: ready")
 	defer slog.Info("Fetcher: shut down")
 
+	handle := func(pubkeys []string) error {
+		events, err := f.fetch(ctx, pubkeys)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
+
+		for i := range events {
+			if err := forward(&events[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	batch := make([]string, 0, f.config.Batch)
 	timer := time.After(f.config.Interval)
 
@@ -77,16 +91,8 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 				continue
 			}
 
-			events, err := f.fetch(ctx, batch)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				slog.Error("Fetcher: failed to fetch", "error", err)
-				continue
-			}
-
-			for i := range events {
-				if err := forward(&events[i]); err != nil {
-					slog.Error("Fetcher: failed to forward", "error", err)
-				}
+			if err := handle(batch); err != nil {
+				slog.Error("Fetcher: failed to handle batch", "error", err)
 			}
 
 			batch = make([]string, 0, f.config.Batch)
@@ -98,16 +104,8 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 				continue
 			}
 
-			events, err := f.fetch(ctx, batch)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				slog.Error("Fetcher: failed to fetch", "error", err)
-				continue
-			}
-
-			for i := range events {
-				if err := forward(&events[i]); err != nil {
-					slog.Error("Fetcher: failed to forward", "error", err)
-				}
+			if err := handle(batch); err != nil {
+				slog.Error("Fetcher: failed to handle batch", "error", err)
 			}
 
 			batch = make([]string, 0, f.config.Batch)
