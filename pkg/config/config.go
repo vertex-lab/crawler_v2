@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kelseyhightower/envconfig"
+	"github.com/caarlos0/env/v11"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 
 	_ "github.com/joho/godotenv/autoload" // autoloading .env
@@ -13,11 +13,11 @@ import (
 )
 
 type SystemConfig struct {
-	RedisAddress    string   `envconfig:"REDIS_ADDRESS"`
-	SQLiteURL       string   `envconfig:"SQLITE_URL"`
-	ChannelCapacity int      `envconfig:"CHANNEL_CAPACITY"`
-	InitPubkeys     []string `envconfig:"INIT_PUBKEYS"`
-	PrintStats      bool     `envconfig:"PRINT_STATS"`
+	RedisAddress    string   `env:"REDIS_ADDRESS"`
+	SQLiteURL       string   `env:"SQLITE_URL"`
+	ChannelCapacity int      `env:"CHANNEL_CAPACITY"`
+	InitPubkeys     []string `env:"INIT_PUBKEYS"`
+	PrintStats      bool     `env:"PRINT_STATS"`
 }
 
 func NewSystemConfig() SystemConfig {
@@ -105,8 +105,7 @@ func (c Config) Print() {
 // Then, if the corresponding environment variable is set, it overwrites them.
 func Load() (Config, error) {
 	config := New()
-
-	if err := envconfig.Process("", &config); err != nil {
+	if err := env.Parse(&config); err != nil {
 		return Config{}, fmt.Errorf("config.Load: %w", err)
 	}
 
