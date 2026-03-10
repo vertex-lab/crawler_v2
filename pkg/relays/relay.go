@@ -153,6 +153,9 @@ func (r *T) Subscribe(id string, filters ...nostr.Filter) (*Subscription, error)
 	if r.isClosing.Load() {
 		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
 	}
+	if len(filters) == 0 {
+		return nil, nil
+	}
 
 	s := &Subscription{
 		id:      id,
@@ -178,6 +181,9 @@ func (r *T) Subscribe(id string, filters ...nostr.Filter) (*Subscription, error)
 func (r *T) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]nostr.Event, error) {
 	if r.isClosing.Load() {
 		return nil, fmt.Errorf("failed to query: %w", ErrDisconnected)
+	}
+	if len(filters) == 0 {
+		return nil, nil
 	}
 
 	s := &Subscription{

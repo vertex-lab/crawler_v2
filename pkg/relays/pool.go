@@ -235,6 +235,9 @@ func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([
 	if p.isClosing.Load() {
 		return nil, fmt.Errorf("failed to query: %w", ErrPoolClosed)
 	}
+	if len(filters) == 0 {
+		return nil, nil
+	}
 
 	p.mu.Lock()
 	isDuplicate := p.streamIDs.Contains(id)
@@ -322,6 +325,9 @@ func preferCandidate(current, candidate nostr.Event) bool {
 func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 	if p.isClosing.Load() {
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
+	}
+	if len(filters) == 0 {
+		return nil, nil
 	}
 
 	p.mu.Lock()
