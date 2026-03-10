@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/vertex-lab/crawler_v2/pkg/core/pool"
 )
 
 var (
@@ -15,14 +16,14 @@ var (
 	pip string = "f683e87035f7ad4f44e0b98cfbd9537e16455a92cd38cefc4cb31db7557f5ef2"
 )
 
-// mockStore implements NodeStore for testing.
-type mockStore struct {
+// mockDB implements [DB] for testing.
+type mockDB struct {
 	exists map[string]bool
 	err    error
 	calls  int
 }
 
-func (m *mockStore) Exists(_ context.Context, pubkey string) (bool, error) {
+func (m *mockDB) Exists(_ context.Context, pubkey string) (bool, error) {
 	m.calls++
 	return m.exists[pubkey], m.err
 }
@@ -32,10 +33,15 @@ func TestFirehose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*60)
 	defer cancel()
 
-	config := NewConfig()
-	gate := newGate(t, &mockStore{exists: map[string]bool{pip: true}})
+	pool, err := pool.New(pool.NewConfig())
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
 
-	firehose := New(config, gate)
+	config := NewConfig()
+	policy := newPolicy(t, &mockDB{exists: map[string]bool{pip: true}})
+
+	firehose := New(config, pool, policy)
 	firehose.Run(ctx, func(e *nostr.Event) error {
 		fmt.Printf("ID: %s, Kind: %d, Pubkey: %s\n", e.ID, e.Kind, e.PubKey)
 		return nil
@@ -88,36 +94,36 @@ func TestBuffer(t *testing.T) {
 	})
 }
 
-func TestExistenceGate(t *testing.T) {
+func TestExistPolicy(t *testing.T) {
 	const pubkey = "abc123"
 
 	t.Run("allows pubkey present in store", func(t *testing.T) {
-		store := &mockStore{exists: map[string]bool{pubkey: true}}
-		gate := newGate(t, store)
+		store := &mockDB{exists: map[string]bool{pubkey: true}}
+		gate := newPolicy(t, store)
 		if !gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return true for a known pubkey")
 		}
 	})
 
 	t.Run("denies pubkey absent from store", func(t *testing.T) {
-		store := &mockStore{exists: map[string]bool{}}
-		gate := newGate(t, store)
+		store := &mockDB{exists: map[string]bool{}}
+		gate := newPolicy(t, store)
 		if gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return false for an unknown pubkey")
 		}
 	})
 
 	t.Run("denies pubkey on store error", func(t *testing.T) {
-		store := &mockStore{err: errors.New("redis down")}
-		gate := newGate(t, store)
+		store := &mockDB{err: errors.New("redis down")}
+		gate := newPolicy(t, store)
 		if gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return false when the store errors")
 		}
 	})
 
 	t.Run("caches positive lookups", func(t *testing.T) {
-		store := &mockStore{exists: map[string]bool{pubkey: true}}
-		gate := newGate(t, store)
+		store := &mockDB{exists: map[string]bool{pubkey: true}}
+		gate := newPolicy(t, store)
 
 		gate.Allow(ctx, pubkey)
 		gate.Allow(ctx, pubkey)
@@ -129,8 +135,8 @@ func TestExistenceGate(t *testing.T) {
 	})
 
 	t.Run("does not cache negative lookups", func(t *testing.T) {
-		store := &mockStore{exists: map[string]bool{}}
-		gate := newGate(t, store)
+		store := &mockDB{exists: map[string]bool{}}
+		gate := newPolicy(t, store)
 
 		gate.Allow(ctx, pubkey)
 		gate.Allow(ctx, pubkey)
@@ -141,11 +147,11 @@ func TestExistenceGate(t *testing.T) {
 	})
 }
 
-func newGate(t *testing.T, store *mockStore) *ExistenceGate {
+func newPolicy(t *testing.T, store *mockDB) *ExistPolicy {
 	t.Helper()
-	gate, err := NewExistenceGate(store, 128)
+	gate, err := NewExistPolicy(store, 128)
 	if err != nil {
-		t.Fatalf("NewExistenceGate: %v", err)
+		t.Fatalf("NewExistPolicy: %v", err)
 	}
 	return gate
 }

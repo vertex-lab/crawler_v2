@@ -5,11 +5,11 @@ go 1.24.1
 toolchain go1.24.3
 
 require (
+	github.com/caarlos0/env/v11 v11.4.0
 	github.com/goccy/go-json v0.10.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/joho/godotenv v1.5.1
-	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nbd-wtf/go-nostr v0.52.0
 	github.com/pippellia-btc/slicex v0.2.4
 	github.com/pippellia-btc/smallset v0.4.3
@@ -23,7 +23,6 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.1 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
-	github.com/caarlos0/env/v11 v11.4.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/coder/websocket v1.8.12 // indirect
