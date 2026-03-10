@@ -10,10 +10,9 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/relays"
 )
 
-// Firehose connects to the [realays.Pool] and streams all new events matching the config.
-// It deduplicates events using a simple ring-buffer, applies the Filter to remove
-// events from undesired pubkeys, and forwards the rest.
-type Firehose struct {
+// T represents a firehose that reads the stream of events of a [relays.Pool].
+// It deduplicates events using a simple ring-buffer, applies the pubkey policy and forwards the rest.
+type T struct {
 	pool   *relays.Pool
 	policy Policy
 	config Config
@@ -24,9 +23,9 @@ type Policy interface {
 	Allow(ctx context.Context, pubkey string) bool
 }
 
-// New creates a new [Firehose]. The config is assumed to already be validated.
-func New(c Config, pool *relays.Pool, policy Policy) *Firehose {
-	return &Firehose{
+// New creates a new [T]. The config is assumed to already be validated.
+func New(c Config, pool *relays.Pool, policy Policy) *T {
+	return &T{
 		pool:   pool,
 		policy: policy,
 		config: c,
@@ -34,13 +33,13 @@ func New(c Config, pool *relays.Pool, policy Policy) *Firehose {
 }
 
 // Run connects to the relays and forwards incoming events until the context is cancelled.
-func (f *Firehose) Run(ctx context.Context, forward func(*nostr.Event) error) {
-	slog.Info("Firehose: ready")
-	defer slog.Info("Firehose: shut down")
+func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
+	slog.Info("T: ready")
+	defer slog.Info("T: shut down")
 
 	stream, err := f.pool.Stream("vertex-firehose", f.config.Filter())
 	if err != nil {
-		slog.Error("Firehose: failed to create stream", "error", err)
+		slog.Error("T: failed to create stream", "error", err)
 		return
 	}
 
@@ -53,7 +52,7 @@ func (f *Firehose) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			return
 
 		case <-stream.Done():
-			slog.Error("Firehose: stream closed", "error", stream.Err())
+			slog.Error("T: stream closed", "error", stream.Err())
 			return
 
 		case e := <-stream.Events():
@@ -67,14 +66,14 @@ func (f *Firehose) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			}
 
 			if err := forward(e); err != nil {
-				slog.Error("Firehose: failed to forward", "error", err)
+				slog.Error("T: failed to forward", "error", err)
 			}
 		}
 	}
 }
 
-// DB is the subset of the database behaviour required by [ExistPolicy].
-type DB interface {
+// db is the subset of the database behaviour required by [ExistPolicy].
+type db interface {
 	Exists(ctx context.Context, pubkey string) (bool, error)
 }
 
@@ -83,10 +82,10 @@ type DB interface {
 // keys are never removed from the database.
 type ExistPolicy struct {
 	cache *lru.Cache[string, struct{}]
-	db    DB
+	db    db
 }
 
-func NewExistPolicy(db DB, cacheSize int) (*ExistPolicy, error) {
+func NewExistPolicy(db db, cacheSize int) (*ExistPolicy, error) {
 	cache, err := lru.New[string, struct{}](cacheSize)
 	if err != nil {
 		return nil, err
@@ -101,7 +100,7 @@ func (p *ExistPolicy) Allow(ctx context.Context, pubkey string) bool {
 
 	exists, err := p.db.Exists(ctx, pubkey)
 	if err != nil {
-		slog.Error("Firehose: ExistPolicy: failed to check existence", "pubkey", pubkey, "error", err)
+		slog.Error("T: ExistPolicy: failed to check existence", "pubkey", pubkey, "error", err)
 		return false
 	}
 
