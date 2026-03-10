@@ -226,6 +226,7 @@ type sessionOp struct {
 }
 
 // Query concurrently queries all connected relays for events matching the given filters.
+// The returned events are deduplicated and present only the newest event per replacement category (replaceable / addresable).
 // Errors are joined together using [errors.Join], and events are always returned even if errors occur.
 //
 // It is always recommended to use this method with a context timeout (e.g. 10s),
@@ -311,11 +312,12 @@ func preferCandidate(current, candidate nostr.Event) bool {
 	if candidate.CreatedAt < current.CreatedAt {
 		return false
 	}
-	return candidate.ID < current.ID // tie-breaker: keep lexicographically lowest ID
+	// tie-breaker: keep lexicographically lowest ID as per NIP-01
+	return candidate.ID < current.ID
 }
 
-// Stream creates a new stream with the given id and filters, returning a
-// Stream object that can be used to receive events from all connected relays.
+// Stream creates a new stream with the given id and filters, returning a Stream object
+// that can be used to receive events from all relays as they are received without deduplication.
 // It returns an error if the pool is closed, or if the stream id is duplicated.
 func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 	if p.isClosing.Load() {
