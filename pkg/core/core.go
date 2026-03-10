@@ -3,6 +3,7 @@
 package core
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -40,3 +41,19 @@ var (
 		ProfileKinds,
 	)
 )
+
+const (
+	MaxTags    = 50_000
+	MaxContent = 1_000_000
+)
+
+// EventTooBig returns an error if the event is too big.
+func EventTooBig(e *nostr.Event) error {
+	if len(e.Tags) > MaxTags {
+		return fmt.Errorf("event with ID %s has too many tags: %d", e.ID, len(e.Tags))
+	}
+	if len(e.Content) > MaxContent {
+		return fmt.Errorf("event with ID %s has too much content: %d", e.ID, len(e.Content))
+	}
+	return nil
+}
