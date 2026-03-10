@@ -21,6 +21,9 @@ var (
 
 // Pool manages a set of relay connections and presents a unified API to the caller.
 // It maintains the desired subscription state, handling relay disconnections and subscription closures.
+//
+// Callers must always use new and unique IDs for streams, even if old streams were closed.
+// This policy is critical for the relay reconnection logic to work correctly.
 type Pool struct {
 	// streamIDs holds the IDs of all streams that were ever opened by this pool.
 	// The session reconnection logic needs the guarantee that stream IDs are unique, otherwise we might have:
@@ -29,8 +32,8 @@ type Pool struct {
 	// - session stops running
 	// - stream with "ID" is closed
 	// - another stream with the same "ID" is opened
-	mu        sync.Mutex
 	streamIDs smallset.Ordered[string]
+	mu        sync.Mutex // only protects streamIDs
 
 	streams   map[string]*Stream
 	streamOps chan streamOp
@@ -146,103 +149,35 @@ func (p *Pool) relays(ctx context.Context) (relayView, error) {
 	}
 }
 
-// Stream creates a new stream with the given id and filters, returning a
-// Stream object that can be used to receive events from all connected relays.
-// It returns an error if the pool is closed, or if the stream id is duplicated.
-func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
-	if p.isClosing.Load() {
-		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
-	}
-
-	p.mu.Lock()
-	if p.streamIDs.Contains(id) {
-		p.mu.Unlock()
-		return nil, fmt.Errorf("failed to create stream: %w", ErrDuplicateStream)
-	}
-	p.streamIDs.Add(id)
-	p.mu.Unlock()
-
-	s := &Stream{
-		id:      id,
-		filters: filters,
-		pool:    p,
-		events:  make(chan *nostr.Event, 10_000),
-		done:    make(chan struct{}),
-	}
-
-	select {
-	case <-p.done:
-		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
-
-	case p.streamOps <- streamOp{Stream: s, close: false}:
-		return s, nil
-
-	default:
-		return nil, fmt.Errorf("failed to create stream: %w", ErrSendFailed)
-	}
+// Wait blocks until at least one relay in the pool is connected.
+// It returns an error if the context is canceled/deadline exceeded or the pool is closed.
+func (p *Pool) Wait(ctx context.Context) error {
+	_, err := p.waitConnected(ctx)
+	return fmt.Errorf("waiting for relays: %w", err)
 }
 
-// steamOp represents an operation that modifies the pool's streams.
-type streamOp struct {
-	*Stream
-	close bool // open = !close
-}
+// waitConnected blocks until at least one relay in the pool is connected, returning all connected relays.
+func (p *Pool) waitConnected(ctx context.Context) ([]*T, error) {
+	t := time.NewTicker(100 * time.Millisecond)
+	defer t.Stop()
 
-// Query concurrently queries all connected relays for events matching the given filters.
-// Errors are joined together using [errors.Join], and events are always returned even if errors occur.
-//
-// It is always recommended to use this method with a context timeout (e.g. 10s),
-// to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
-func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]nostr.Event, error) {
-	if p.isClosing.Load() {
-		return nil, fmt.Errorf("failed to query: %w", ErrPoolClosed)
+	for {
+		relays, err := p.relays(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(relays.connected) > 0 {
+			return relays.connected, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-p.done:
+			return nil, ErrPoolClosed
+		case <-t.C:
+		}
 	}
-
-	p.mu.Lock()
-	isDuplicate := p.streamIDs.Contains(id)
-	p.mu.Unlock()
-
-	if isDuplicate {
-		return nil, fmt.Errorf("failed to query: %w", ErrDuplicateStream)
-	}
-
-	relays, err := p.relays(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query: %w", err)
-	}
-
-	if len(relays.connected) == 0 {
-		return nil, fmt.Errorf("failed to query: %w", ErrNoRelays)
-	}
-
-	type result struct {
-		events []nostr.Event
-		err    error
-	}
-
-	results := make(chan result, len(relays.connected))
-	wg := sync.WaitGroup{}
-
-	for _, r := range relays.connected {
-		wg.Add(1)
-		go func(r *T) {
-			defer wg.Done()
-			events, err := r.Query(ctx, id, filters...)
-			results <- result{events, err}
-		}(r)
-	}
-
-	wg.Wait()
-	close(results)
-
-	events := make([]nostr.Event, 0, len(relays.connected)*expectedSize(filters))
-
-	for r := range results {
-		// TODO: perform deduplication and keep the last replaceable and addressable event only.
-		err = errors.Join(err, r.err)
-		events = append(events, r.events...)
-	}
-	return events, nil
 }
 
 // Add adds a relay URL to the pool.
@@ -288,6 +223,101 @@ func (p *Pool) Remove(url string) error {
 type sessionOp struct {
 	url    string
 	remove bool // add = !remove
+}
+
+// Query concurrently queries all connected relays for events matching the given filters.
+// Errors are joined together using [errors.Join], and events are always returned even if errors occur.
+//
+// It is always recommended to use this method with a context timeout (e.g. 10s),
+// to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
+func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]nostr.Event, error) {
+	if p.isClosing.Load() {
+		return nil, fmt.Errorf("failed to query: %w", ErrPoolClosed)
+	}
+
+	p.mu.Lock()
+	isDuplicate := p.streamIDs.Contains(id)
+	p.mu.Unlock()
+
+	if isDuplicate {
+		return nil, fmt.Errorf("failed to query: %w", ErrDuplicateStream)
+	}
+
+	relays, err := p.waitConnected(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
+	}
+
+	type result struct {
+		events []nostr.Event
+		err    error
+	}
+
+	results := make(chan result, len(relays))
+	wg := sync.WaitGroup{}
+
+	for _, r := range relays {
+		wg.Add(1)
+		go func(r *T) {
+			defer wg.Done()
+			events, err := r.Query(ctx, id, filters...)
+			results <- result{events, err}
+		}(r)
+	}
+
+	wg.Wait()
+	close(results)
+
+	events := make([]nostr.Event, 0, len(relays)*expectedSize(filters))
+
+	for r := range results {
+		// TODO: perform deduplication and keep the last replaceable and addressable event only.
+		err = errors.Join(err, r.err)
+		events = append(events, r.events...)
+	}
+	return events, nil
+}
+
+// Stream creates a new stream with the given id and filters, returning a
+// Stream object that can be used to receive events from all connected relays.
+// It returns an error if the pool is closed, or if the stream id is duplicated.
+func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
+	if p.isClosing.Load() {
+		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
+	}
+
+	p.mu.Lock()
+	if p.streamIDs.Contains(id) {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("failed to create stream: %w", ErrDuplicateStream)
+	}
+	p.streamIDs.Add(id)
+	p.mu.Unlock()
+
+	s := &Stream{
+		id:      id,
+		filters: filters,
+		pool:    p,
+		events:  make(chan *nostr.Event, 10_000),
+		done:    make(chan struct{}),
+	}
+
+	select {
+	case <-p.done:
+		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
+
+	case p.streamOps <- streamOp{Stream: s, close: false}:
+		return s, nil
+
+	default:
+		return nil, fmt.Errorf("failed to create stream: %w", ErrSendFailed)
+	}
+}
+
+// steamOp represents an operation that modifies the pool's streams.
+type streamOp struct {
+	*Stream
+	close bool // open = !close
 }
 
 // cleanup clears all active sessions and streams.
@@ -397,7 +427,7 @@ func (p *Pool) run() {
 				p.sessions[url] = new
 
 				for _, stream := range p.streams {
-					// to avoid duplicate events, retry each subscription where the filters' since
+					// to avoid duplicate events, retry each subscription with filters whose since
 					// reflects the last event of the old subscription.
 					// This is possible because the streamIDs are globally unique thanks to pool.streamIDs
 					var lastEvent time.Time
