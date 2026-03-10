@@ -268,14 +268,50 @@ func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([
 	wg.Wait()
 	close(results)
 
-	events := make([]nostr.Event, 0, len(relays)*expectedSize(filters))
+	sizeHint := expectedSize(filters)
+	canonical := make(map[string]nostr.Event, sizeHint)
 
 	for r := range results {
-		// TODO: perform deduplication and keep the last replaceable and addressable event only.
 		err = errors.Join(err, r.err)
-		events = append(events, r.events...)
+
+		for _, e := range r.events {
+			k := key(e)
+			current, found := canonical[k]
+			if !found || preferCandidate(current, e) {
+				canonical[k] = e
+			}
+		}
+	}
+
+	events := make([]nostr.Event, 0, len(canonical))
+	for _, e := range canonical {
+		events = append(events, e)
 	}
 	return events, nil
+}
+
+// key returns a key used for deduplicate events and applying replaceable and addressable event rules.
+func key(e nostr.Event) string {
+	switch {
+	case nostr.IsReplaceableKind(e.Kind):
+		return fmt.Sprintf("%d:%s", e.Kind, e.PubKey)
+
+	case nostr.IsAddressableKind(e.Kind):
+		return fmt.Sprintf("%d:%s:%s", e.Kind, e.PubKey, e.Tags.GetD())
+	default:
+		return e.ID
+	}
+}
+
+// preferCandidate reports whether candidate should replace current.
+func preferCandidate(current, candidate nostr.Event) bool {
+	if candidate.CreatedAt > current.CreatedAt {
+		return true
+	}
+	if candidate.CreatedAt < current.CreatedAt {
+		return false
+	}
+	return candidate.ID < current.ID // tie-breaker: keep lexicographically lowest ID
 }
 
 // Stream creates a new stream with the given id and filters, returning a
