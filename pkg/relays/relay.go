@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"sync/atomic"
@@ -68,8 +69,12 @@ func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 		}
 	}
 
-	conn, _, err := r.settings.WS.dialer.DialContext(ctx, r.url, nil)
+	conn, resp, err := r.settings.WS.dialer.DialContext(ctx, r.url, nil)
 	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			return nil, fmt.Errorf("%w, status: %s, body: %q", err, resp.Status, body)
+		}
 		return nil, err
 	}
 	r.conn = conn
