@@ -381,13 +381,13 @@ func (p *Pool) cleanup() {
 }
 
 func (p *Pool) run() {
-	defer p.cleanup()
-
 	p.log.Info("relay pool is running")
-	defer p.log.Info("relay pool is shutting down")
+	defer p.log.Info("relay pool is down")
 
 	retry := time.NewTicker(p.settings.relayRetry)
 	defer retry.Stop()
+
+	defer p.cleanup()
 
 	for {
 		if p.isClosing.Load() {
@@ -558,7 +558,7 @@ func (s *session) run() {
 	defer relay.Close()
 
 	s.pool.log.Debug("session is running", "relay", s.url)
-	defer s.pool.log.Debug("session is shutting down", "relay", s.url)
+	defer s.pool.log.Debug("session is down", "relay", s.url)
 
 	retry := time.NewTicker(s.pool.settings.subRetry)
 	defer retry.Stop()

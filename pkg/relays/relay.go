@@ -264,7 +264,7 @@ func (r *T) read() {
 		msgType, reader, err := r.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				r.log.Error("unexpected close error from relay", "relay", r.url, "error", err)
+				r.log.Debug("unexpected close error from relay", "relay", r.url, "error", err)
 			}
 
 			r.close(err)
@@ -279,7 +279,7 @@ func (r *T) read() {
 		decoder := json.NewDecoder(reader)
 		label, err := parseLabel(decoder)
 		if err != nil {
-			r.log.Error("failed to parse label", "relay", r.url, "error", err)
+			r.log.Warn("failed to parse label", "relay", r.url, "error", err)
 			continue
 		}
 
@@ -287,23 +287,28 @@ func (r *T) read() {
 		case "EVENT":
 			msg, err := parseEvent(decoder)
 			if err != nil {
-				r.log.Error("failed to parse event", "relay", r.url, "error", err)
+				r.log.Warn("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
 
 			if err := verify(&msg.Event); err != nil {
-				r.log.Error("failed to verify event", "relay", r.url, "error", err)
+				r.log.Warn("failed to verify event", "relay", r.url, "error", err)
 				continue
 			}
 
-			if err := r.subs.Route(msg.SubID, &msg.Event); err != nil {
+			err = r.subs.Route(msg.SubID, &msg.Event)
+			if errors.Is(err, ErrInvalidSubMatch) {
+				r.log.Debug("event does not match the subscription filters", "relay", r.url)
+				continue
+			}
+			if err != nil {
 				r.log.Error("failed to route event", "relay", r.url, "error", err)
 			}
 
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
 			if err != nil {
-				r.log.Error("failed to parse closed", "relay", r.url, "error", err)
+				r.log.Warn("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalClosed(closed.ID, closed.Message)
@@ -311,7 +316,7 @@ func (r *T) read() {
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
 			if err != nil {
-				r.log.Error("failed to parse eose", "relay", r.url, "error", err)
+				r.log.Warn("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalEOSE(eose.ID)
@@ -324,7 +329,7 @@ func (r *T) read() {
 
 			auth, err := parseAuth(decoder)
 			if err != nil {
-				r.log.Error("failed to parse auth", "relay", r.url, "error", err)
+				r.log.Warn("failed to parse auth", "relay", r.url, "error", err)
 				continue
 			}
 
@@ -338,7 +343,7 @@ func (r *T) read() {
 
 			err = r.send(Auth{Event: response})
 			if err != nil && !errors.Is(err, ErrDisconnected) {
-				r.log.Warn("failed to send auth response", "relay", r.url, "error", err)
+				r.log.Error("failed to send auth response", "relay", r.url, "error", err)
 			}
 
 		case "OK":
@@ -348,13 +353,13 @@ func (r *T) read() {
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
 			if err != nil {
-				r.log.Error("failed to parse notice", "relay", r.url, "error", err)
+				r.log.Warn("failed to parse notice", "relay", r.url, "error", err)
 				continue
 			}
 			r.log.Info("received notice message", "relay", r.url, "message", notice.Message)
 
 		default:
-			r.log.Debug("received unknown message", "relay", r.url, "label", label)
+			r.log.Warn("received unknown message", "relay", r.url, "label", label)
 		}
 	}
 }
@@ -379,7 +384,7 @@ func (r *T) write() {
 
 			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
-					r.log.Error("unexpected error when attemping to write", "error", err)
+					r.log.Warn("unexpected error when attempting to write", "error", err)
 				}
 				continue
 			}
