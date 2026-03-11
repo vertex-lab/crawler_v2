@@ -3,7 +3,6 @@ package fetcher
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -41,21 +40,28 @@ func New(c Config, source Source) *T {
 	}
 }
 
-// Enqueue adds a pubkey to the fetcher's queue.
-func (f *T) Enqueue(pk string) error {
-	if len(pk) != 64 {
-		return fmt.Errorf("%w: length must be 64", ErrInvalidPubkey)
-	}
-	if !nostr.IsValidPublicKey(pk) {
-		return ErrInvalidPubkey
+// Enqueue adds one or more pubkeys to the fetcher's queue.
+// Invalid pubkeys are skipped but reported as an error.
+func (f *T) Enqueue(pubkeys ...string) error {
+	if len(pubkeys) == 0 {
+		return nil
 	}
 
-	select {
-	case f.pubkeys <- pk:
-		return nil
-	default:
-		return ErrQueueFull
+	var errs []error
+	for _, pk := range pubkeys {
+		if len(pk) != 64 || !nostr.IsValidPublicKey(pk) {
+			errs = append(errs, ErrInvalidPubkey)
+			continue
+		}
+
+		select {
+		case f.pubkeys <- pk:
+		default:
+			errs = append(errs, ErrQueueFull)
+			return errors.Join(errs...)
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // Run starts the fetcher loop, which fetches events for pubkeys from the queue and forwards them.

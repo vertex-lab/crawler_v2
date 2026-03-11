@@ -35,7 +35,7 @@ func (a *T) TrackWalks(_, new []walks.Walk) error {
 	return nil
 }
 
-func (a *T) Run(ctx context.Context, onPromotion func(string) error) {
+func (a *T) Run(ctx context.Context, onPromotion func(pubkeys ...string) error) {
 	slog.Info("Arbiter: ready")
 	defer slog.Info("Arbiter: shut down")
 
@@ -83,7 +83,7 @@ func (a *T) Run(ctx context.Context, onPromotion func(string) error) {
 }
 
 // scan performs a single scan of the graph to promote/demote nodes.
-func (a *T) scan(ctx context.Context, onPromotion func(string) error) (promoted, demoted int, err error) {
+func (a *T) scan(ctx context.Context, onPromotion func(pubkeys ...string) error) (promoted, demoted int, err error) {
 	ctx, cancel := context.WithTimeout(ctx, a.config.ScanTimeout)
 	defer cancel()
 
@@ -147,7 +147,7 @@ func (a *T) scan(ctx context.Context, onPromotion func(string) error) (promoted,
 				promoted++
 				if onPromotion != nil {
 					if err := onPromotion(node.Pubkey); err != nil {
-						return promoted, demoted, err
+						slog.Error("Arbiter: call to onPromotion failed", "error", err)
 					}
 				}
 			}
