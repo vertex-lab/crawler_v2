@@ -18,11 +18,11 @@ The goals of this project are:
 
 `/cmd/crawl/`
 
-The main entry point, which assumes that the SQLite event store and the Redis graph are syncronized. In case they are empty, the graph will be initialized using the `INIT_PUBKEYS` specified in the environment.
+The main entry point, which assumes that the Sqlite event store and the Redis graph are syncronized. In case they are empty, the graph will be initialized using the `INIT_PUBKEYS` specified in the environment.
 
 `/cmd/sync/`
 
-This mode builds the Redis graph database from the SQLite event store. In other words, it syncronizes the Redis graph to reflect the events SQLite store, starting from the `INIT_PUBKEYS` specified in the environment, and expanding outward.
+This mode builds the Redis graph database from the Sqlite event store. In other words, it syncronizes the Redis graph to reflect the events Sqlite store, starting from the `INIT_PUBKEYS` specified in the environment, and expanding outward.
 
 ## How to run
 
@@ -32,11 +32,11 @@ Make sure you have [Redis](https://redis.io/) version `7.4.1` or higher installe
 
 The Redis database must be empty before the first run.
 
-### Step 2. SQLite
+### Step 2. Sqlite
 
-Make sure you have [SQLite](https://sqlite.org/index.html) version `3.49.0` or higher installed, up and running. Check out the [official documentation](https://sqlite.org/download.html) for how to install it.
+Make sure you have [Sqlite](https://sqlite.org/index.html) version `3.49.0` or higher installed, up and running. Check out the [official documentation](https://sqlite.org/download.html) for how to install it.
  
-SQLite must be compiled with the [Full Text Search 5 Extention](https://sqlite.org/fts5.html).
+Sqlite must be compiled with the [Full Text Search 5 Extention](https://sqlite.org/fts5.html).
 
 ### Step 3. Environment
 
