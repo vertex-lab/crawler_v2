@@ -470,7 +470,10 @@ func AddValid(ctx context.Context, db DB, pubkey string) (graph.ID, error) {
 	return db.AddNode(ctx, pubkey)
 }
 
-// Resolve pubkeys into node IDs. If a pubkey is missing (ID = ""), it applies the onMissing handler.
+// Resolve pubkeys into node IDs. If a pubkey is missing, onMissing is called.
+// Empty IDs returned by onMissing are skipped.
+// Call this function with [Ignore] to ignore missing pubkeys,
+// or [AddValid] to add them to the database if they are valid pubkeys.
 func (db DB) Resolve(ctx context.Context, pubkeys []string, onMissing MissingHandler) ([]graph.ID, error) {
 	IDs, err := db.NodeIDs(ctx, pubkeys...)
 	if err != nil {
