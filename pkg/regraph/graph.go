@@ -415,7 +415,6 @@ func (db DB) NodeIDs(ctx context.Context, pubkeys ...string) ([]graph.ID, error)
 			nodes[i] = graph.ID(ID.(string))
 		}
 	}
-
 	return nodes, nil
 }
 
@@ -452,50 +451,6 @@ func (db DB) Pubkeys(ctx context.Context, nodes ...graph.ID) ([]string, error) {
 	}
 
 	return pubkeys, nil
-}
-
-type MissingHandler func(ctx context.Context, db DB, pubkey string) (graph.ID, error)
-
-// Ignore pubkeys that are not found
-func Ignore(context.Context, DB, string) (graph.ID, error) { return "", nil }
-
-// Return a sentinel value ("-1") as the node ID of pubkeys not found
-func Sentinel(context.Context, DB, string) (graph.ID, error) { return "-1", nil }
-
-// AddValid pubkeys to the database if they were not already present
-func AddValid(ctx context.Context, db DB, pubkey string) (graph.ID, error) {
-	if len(pubkey) != 64 || !nostr.IsValidPublicKey(pubkey) {
-		return "", nil
-	}
-	return db.AddNode(ctx, pubkey)
-}
-
-// Resolve pubkeys into node IDs. If a pubkey is missing, onMissing is called.
-// Empty IDs returned by onMissing are skipped.
-// Call this function with [Ignore] to ignore missing pubkeys,
-// or [AddValid] to add them to the database if they are valid pubkeys.
-func (db DB) Resolve(ctx context.Context, pubkeys []string, onMissing MissingHandler) ([]graph.ID, error) {
-	IDs, err := db.NodeIDs(ctx, pubkeys...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pubkeys: %w", err)
-	}
-
-	resolved := make([]graph.ID, 0, len(IDs))
-	for i, ID := range IDs {
-		if ID != "" {
-			resolved = append(resolved, ID)
-			continue
-		}
-
-		ID, err = onMissing(ctx, db, pubkeys[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve pubkey %q: %w", pubkeys[i], err)
-		}
-		if ID != "" {
-			resolved = append(resolved, ID)
-		}
-	}
-	return resolved, nil
 }
 
 // ScanNodes to return a batch of node IDs of size roughly proportional to limit.

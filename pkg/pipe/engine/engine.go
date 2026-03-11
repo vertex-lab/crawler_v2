@@ -115,8 +115,8 @@ func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 		if event == nil || !slices.Contains(e.config.Kinds, event.Kind) {
 			return
 		}
-		if err := process(event); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("Engine: failed to process event", "error", err, "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
+		if err := process(event); err != nil {
+			logErrEvent(err, event)
 			return
 		}
 		processed++
@@ -145,7 +145,7 @@ func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 	}
 }
 
-// processIngest is the process function for the engine in the [Engine.Ingest] method.
+// processIngest is the process function for the engine in the [T.Ingest] method.
 func (e *T) processIngest(event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
@@ -170,7 +170,9 @@ func (e *T) processIngest(event *nostr.Event) error {
 
 		if replaced && e.After.RelaysDiscovered != nil {
 			relays := ParseRelays(event)
-			return e.After.RelaysDiscovered(relays...)
+			if err := e.After.RelaysDiscovered(relays...); err != nil {
+				logErrEvent(err, event)
+			}
 		}
 		return nil
 
@@ -180,7 +182,7 @@ func (e *T) processIngest(event *nostr.Event) error {
 	}
 }
 
-// processSync is the process function for the engine in the [Engine.Sync] method.
+// processSync is the process function for the engine in the [T.Sync] method.
 func (e *T) processSync(event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
@@ -215,7 +217,7 @@ func (e *T) archive(ctx context.Context, event *nostr.Event) error {
 // updateGraph updates the redis graph and walks using the given follow-list event.
 func (e *T) updateGraph(ctx context.Context, event *nostr.Event) error {
 	if event.Kind != nostr.KindFollowList {
-		return errors.New("update Graph received an event that is not a kind:3 follow-list")
+		return errors.New("updateGraph received an event that is not a kind:3 follow-list")
 	}
 
 	delta, err := e.computeDelta(ctx, event)
@@ -251,17 +253,38 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 	}
 
 	pubkeys := ParsePubkeys(event)
-	onMissing := regraph.Ignore
-	if author.Status == graph.StatusActive {
-		// active nodes are the only ones that can add new pubkeys to the database
-		onMissing = regraph.AddValid
-	}
-
-	newFollows, err := e.graph.Resolve(ctx, pubkeys, onMissing)
+	newFollows, err := e.graph.NodeIDs(ctx, pubkeys...)
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
-	return graph.NewDelta(event.Kind, author.ID, oldFollows, newFollows), nil
+
+	var addedPks []string
+	if author.Status == graph.StatusActive {
+		// to avoid sybil attacks, active nodes are the only ones
+		// that can add new pubkeys to the database
+		for i, ID := range newFollows {
+			if ID == "" {
+				// happens when the pubkey is unknown
+				pk := pubkeys[i]
+				newID, err := e.graph.AddNode(ctx, pk)
+				if err != nil {
+					return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
+				}
+
+				newFollows[i] = newID
+				addedPks = append(addedPks, pk)
+			}
+		}
+	}
+
+	if e.After.PubkeysAdded != nil {
+		if err := e.After.PubkeysAdded(addedPks...); err != nil {
+			logErrEvent(err, event)
+		}
+	}
+
+	delta := graph.NewDelta(event.Kind, author.ID, oldFollows, newFollows)
+	return delta, nil
 }
 
 // updateWalks updates random walks based on delta.
@@ -285,7 +308,9 @@ func (e *T) updateWalks(ctx context.Context, delta graph.Delta) error {
 	}
 
 	if e.After.WalksUpdated != nil {
-		return e.After.WalksUpdated(old, new)
+		if err := e.After.WalksUpdated(old, new); err != nil {
+			slog.Error("Engine: call to After.WalksUpdated failed", "error", err)
+		}
 	}
 	return nil
 }
@@ -319,7 +344,7 @@ func ParsePubkeys(e *nostr.Event) []string {
 	return slicex.Unique(pubkeys)
 }
 
-// ParseRelays extracts valid relay URLs from the "r" tags in the event.
+// ParseRelays parses unique and valid relay URLs from the "r" tags in the event.
 func ParseRelays(e *nostr.Event) []string {
 	size := min(len(e.Tags), pipe.MaxTags)
 	urls := make([]string, 0, size)
@@ -335,5 +360,12 @@ func ParseRelays(e *nostr.Event) []string {
 		}
 		urls = append(urls, url)
 	}
-	return urls
+	return slicex.Unique(urls)
+}
+
+// logErrEvent logs an error event if the error is not context.Canceled.
+func logErrEvent(err error, e *nostr.Event) {
+	if err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("Engine: failed to process event", "error", err, "id", e.ID, "kind", e.Kind, "pubkey", e.PubKey)
+	}
 }
