@@ -75,7 +75,22 @@ func (e *T) WalksUpdated() int {
 	return int(e.walksUpdated.Swap(0))
 }
 
-func (e *T) Run(ctx context.Context) {
+// Ingest starts the engine in live ingestion mode.
+// Queued events are first archived according to their storage semantics, and are
+// subsequently used to update the derived state (e.g. follow-list graph in redis).
+func (e *T) Ingest(ctx context.Context) {
+	e.run(ctx, e.processIngest)
+}
+
+// Sync starts the engine in sync mode.
+// Queued events are not archived, as they are assumed to already come from the storage layer, but
+// are only used to recreate the derived state (e.g. follow-list graph in redis).
+func (e *T) Sync(ctx context.Context) {
+	e.run(ctx, e.processSync)
+}
+
+// run starts the engine loop, processing events with the given process function.
+func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 	slog.Info("Engine: ready")
 	defer slog.Info("Engine: shut down")
 
@@ -84,7 +99,7 @@ func (e *T) Run(ctx context.Context) {
 		if event == nil || !slices.Contains(e.config.Kinds, event.Kind) {
 			return
 		}
-		if err := e.process(event); err != nil && !errors.Is(err, context.Canceled) {
+		if err := process(event); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Engine: failed to process event", "error", err, "id", event.ID, "kind", event.Kind, "pubkey", event.PubKey)
 			return
 		}
@@ -114,13 +129,22 @@ func (e *T) Run(ctx context.Context) {
 	}
 }
 
-func (e *T) process(event *nostr.Event) error {
+// processIngest is the process function for the engine in the [Engine.Ingest] method.
+func (e *T) processIngest(event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
 	switch event.Kind {
 	case nostr.KindFollowList:
-		return e.updateGraph(ctx, event)
+		replaced, err := e.store.Replace(ctx, event)
+		if err != nil {
+			return err
+		}
+
+		if replaced {
+			return e.updateGraph(ctx, event)
+		}
+		return nil
 
 	default:
 		// other kinds are archived normally.
@@ -128,38 +152,13 @@ func (e *T) process(event *nostr.Event) error {
 	}
 }
 
-// updateGraph updates the graph using the given follow-list event:
-// - archive/replace event in sqlite
-// - on replacement, update graph + walks
-func (e *T) updateGraph(ctx context.Context, event *nostr.Event) error {
-	if event.Kind != nostr.KindFollowList {
-		return errors.New("update Graph received an event that is not a kind:3 follow-list")
-	}
+// processSync is the process function for the engine in the [Engine.Sync] method.
+func (e *T) processSync(event *nostr.Event) error {
+	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
+	defer cancel()
 
-	replaced, err := e.store.Replace(ctx, event)
-	if err != nil {
-		return err
-	}
-	if !replaced {
-		return nil
-	}
-
-	delta, err := e.computeDelta(ctx, event)
-	if err != nil {
-		return err
-	}
-	updated, err := e.updateWalks(ctx, delta)
-	if err != nil {
-		return err
-	}
-	if err := e.graph.Update(ctx, delta); err != nil {
-		return err
-	}
-	if err := e.cache.Update(ctx, delta); err != nil {
-		return err
-	}
-	if updated > 0 {
-		e.walksUpdated.Add(int64(updated))
+	if event.Kind == nostr.KindFollowList {
+		return e.updateGraph(ctx, event)
 	}
 	return nil
 }
@@ -183,6 +182,36 @@ func (e *T) archive(ctx context.Context, event *nostr.Event) error {
 	default:
 		return nil
 	}
+}
+
+// updateGraph updates the redis graph and walks using the given follow-list event.
+func (e *T) updateGraph(ctx context.Context, event *nostr.Event) error {
+	if event.Kind != nostr.KindFollowList {
+		return errors.New("update Graph received an event that is not a kind:3 follow-list")
+	}
+
+	delta, err := e.computeDelta(ctx, event)
+	if err != nil {
+		return err
+	}
+	if delta.Size() == 0 {
+		return nil
+	}
+
+	if err := e.graph.Update(ctx, delta); err != nil {
+		return err
+	}
+	if err := e.cache.Update(ctx, delta); err != nil {
+		return err
+	}
+	updated, err := e.updateWalks(ctx, delta)
+	if err != nil {
+		return err
+	}
+	if updated > 0 {
+		e.walksUpdated.Add(int64(updated))
+	}
+	return nil
 }
 
 // Compute the delta from the "p" tags in the follow list.
