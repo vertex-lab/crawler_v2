@@ -2,164 +2,177 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"log/slog"
 	"os"
-	"runtime"
+	"os/signal"
 	"sync"
-	"time"
+	"syscall"
 
 	"github.com/vertex-lab/crawler_v2/pkg/config"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/arbiter"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/engine"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/fetcher"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/firehose"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/pool"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/recorder"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
+	"github.com/vertex-lab/crawler_v2/pkg/relays"
 	"github.com/vertex-lab/crawler_v2/pkg/store"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 
-	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
 )
 
-/*
-This programs assumes syncronization between Redis and the event store, meaning
-that the graph in Redis reflects these events.
-If that is not the case, go run /cmd/sync to syncronize Redis with the event store.
-*/
+// This programs assumes syncronization between Redis and the event store, meaning
+// that the graph in Redis reflects these events.
+// If that is not the case, go run /cmd/sync to syncronize Redis with the event store.
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go pipe.HandleSignals(cancel)
 
-	log.Println("--------- starting up the crawler --------")
-	defer log.Println("-----------------------------------------")
+	logger, close, err := NewFileLogger("crawl.log", slog.LevelDebug)
+	if err != nil {
+		panic(err)
+	}
+	defer close()
+	slog.SetDefault(logger)
+
+	slog.Info("--------- starting up the crawler ---------")
+	defer slog.Info("-------------------------------------------------")
 
 	config, err := config.Load()
 	if err != nil {
 		panic(err)
 	}
-
-	db, err := regraph.New(
-		&redis.Options{Addr: config.RedisAddress},
-	)
-	if err != nil {
+	if err := config.Validate(); err != nil {
 		panic(err)
 	}
 
-	defer db.Close()
+	graph, err := regraph.New(&redis.Options{Addr: config.RedisAddress})
+	if err != nil {
+		panic(err)
+	}
+	defer graph.Close()
 	slog.Info("redis connected", "address", config.RedisAddress)
 
 	store, err := store.New(
-		config.SQLiteURL,
+		config.SqlitePath,
 		sqlite.WithEventPolicy(pipe.EventTooBig),
 	)
 	if err != nil {
 		panic(err)
 	}
-
 	defer store.Close()
-	slog.Info("sqlite connected", "path", config.SQLiteURL)
+	slog.Info("sqlite connected", "path", config.SqlitePath)
 
-	recorderQueue := make(chan *nostr.Event, config.ChannelCapacity)
-	engineQueue := make(chan *nostr.Event, config.ChannelCapacity)
-	fetcherQueue := make(chan string, config.ChannelCapacity)
+	pool, err := pool.New(config.Pool, relays.WithLogger(logger))
+	if err != nil {
+		panic(err)
+	}
+	defer pool.Close()
 
-	nodes, err := db.NodeCount(ctx)
+	firehose := firehose.New(config.Firehose, pool, firehose.ExistPolicy(graph, config.Firehose.CacheSize))
+	fetcher := fetcher.New(config.Fetcher, fetcher.SourcePool(pool))
+	engine := engine.New(config.Engine, store, graph)
+	recorder := recorder.New(config.Recorder, graph)
+	arbiter := arbiter.New(config.Arbiter, graph)
+
+	nodes, err := graph.NodeCount(ctx)
 	if err != nil {
 		panic(err)
 	}
 
 	if nodes == 0 {
 		slog.Info("initializing from empty database...")
-
-		if err := pipe.InitGraph(ctx, db, config.InitPubkeys); err != nil {
+		if err := pipe.InitGraph(ctx, graph, config.InitPubkeys); err != nil {
 			panic(err)
 		}
-
 		for _, pk := range config.InitPubkeys {
-			fetcherQueue <- pk
+			if err := fetcher.Enqueue(pk); err != nil {
+				panic(err)
+			}
 		}
-
 		slog.Info("correctly added init pubkeys", "count", len(config.InitPubkeys))
 	}
 
-	if config.PrintStats {
-		go printStats(ctx, recorderQueue, engineQueue, fetcherQueue)
-	}
+	wg := sync.WaitGroup{}
+	wg.Add(5)
 
-	var producers sync.WaitGroup
-	var consumers sync.WaitGroup
-
-	producers.Add(4)
 	go func() {
-		defer producers.Done()
-		gate := pipe.NewExistenceGate(db)
-		pipe.Firehose(ctx, config.Firehose, gate, pipe.Send(recorderQueue))
-		close(recorderQueue)
+		defer wg.Done()
+		firehose.Run(ctx, recorder.Enqueue)
 	}()
 
 	go func() {
-		defer producers.Done()
-		pipe.Recorder(ctx, recorderQueue, db, pipe.Send(engineQueue))
+		defer wg.Done()
+		recorder.Run(ctx, engine.Enqueue)
 	}()
 
 	go func() {
-		defer producers.Done()
-		pipe.Fetcher(ctx, config.Fetcher, fetcherQueue, pipe.Send(engineQueue))
+		defer wg.Done()
+		fetcher.Run(ctx, engine.Enqueue)
 	}()
 
 	go func() {
-		defer producers.Done()
-		pipe.Arbiter(ctx, config.Arbiter, db, pipe.Send(fetcherQueue))
-		close(fetcherQueue)
+		defer wg.Done()
+		arbiter.Run(ctx, engine.WalksUpdated, fetcher.Enqueue)
 	}()
 
-	consumers.Add(1)
 	go func() {
-		defer consumers.Done()
-		pipe.Engine(ctx, config.Engine, engineQueue, store, db)
+		defer wg.Done()
+		engine.Ingest(ctx)
 	}()
 
-	producers.Wait()
-	close(engineQueue)
-	consumers.Wait()
+	wg.Wait()
 }
 
-func printStats(
-	ctx context.Context,
-	recorderQueue, engineQueue chan *nostr.Event,
-	fetcherQueue chan string,
-) {
-	filename := "stats.log"
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+func NewFileLogger(path string, level slog.Level) (*slog.Logger, func() error, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
+		return nil, nil, err
 	}
 
-	defer file.Close()
-	log := log.New(file, "stats: ", log.LstdFlags)
-
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case <-ticker.C:
-			goroutines := runtime.NumGoroutine()
-			memStats := new(runtime.MemStats)
-			runtime.ReadMemStats(memStats)
-
-			log.Println("---------------------------------------")
-			log.Printf("Recorder queue: %d/%d\n", len(recorderQueue), cap(recorderQueue))
-			log.Printf("Engine queue: %d/%d\n", len(engineQueue), cap(engineQueue))
-			log.Printf("Fetcher queue: %d/%d\n", len(fetcherQueue), cap(fetcherQueue))
-			log.Printf("walks tracker: %v\n", pipe.WalksTracker.Load())
-			log.Printf("goroutines: %d\n", goroutines)
-			log.Printf("memory usage: %.2f MB\n", float64(memStats.Alloc)/(1024*1024))
-			log.Println("---------------------------------------")
-		}
-	}
+	l := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level}))
+	return l, f.Close, nil
 }
+
+// func printStats(
+// 	ctx context.Context,
+// 	recorderQueue, engineQueue chan *nostr.Event,
+// 	fetcherQueue chan string,
+// ) {
+// 	filename := "stats.log"
+// 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+// 	if err != nil {
+// 		panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
+// 	}
+
+// 	defer file.Close()
+// 	log := log.New(file, "stats: ", log.LstdFlags)
+
+// 	ticker := time.NewTicker(10 * time.Second)
+// 	defer ticker.Stop()
+
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			return
+
+// 		case <-ticker.C:
+// 			goroutines := runtime.NumGoroutine()
+// 			memStats := new(runtime.MemStats)
+// 			runtime.ReadMemStats(memStats)
+
+// 			log.Println("---------------------------------------")
+// 			log.Printf("Recorder queue: %d/%dn", len(recorderQueue), cap(recorderQueue))
+// 			log.Printf("Engine queue: %d/%dn", len(engineQueue), cap(engineQueue))
+// 			log.Printf("Fetcher queue: %d/%dn", len(fetcherQueue), cap(fetcherQueue))
+// 			log.Printf("walks tracker: %vn", pipe.WalksTracker.Load())
+// 			log.Printf("goroutines: %dn", goroutines)
+// 			log.Printf("memory usage: %.2f MBn", float64(memStats.Alloc)/(1024*1024))
+// 			log.Println("---------------------------------------")
+// 		}
+// 	}
+// }

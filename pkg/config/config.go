@@ -2,37 +2,42 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/caarlos0/env/v11"
-	"github.com/vertex-lab/crawler_v2/pkg/pipe"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/arbiter"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/engine"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/fetcher"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/firehose"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/pool"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/recorder"
 
 	_ "github.com/joho/godotenv/autoload" // autoloading .env
 	"github.com/nbd-wtf/go-nostr"
 )
 
-type SystemConfig struct {
-	RedisAddress    string   `env:"REDIS_ADDRESS"`
-	SQLiteURL       string   `env:"SQLITE_URL"`
-	ChannelCapacity int      `env:"CHANNEL_CAPACITY"`
-	InitPubkeys     []string `env:"INIT_PUBKEYS"`
-	PrintStats      bool     `env:"PRINT_STATS"`
+type System struct {
+	// The address of the Redis server
+	RedisAddress string `env:"REDIS_ADDRESS"`
+
+	// The path to the SQLite database file
+	SqlitePath string `env:"SQLITE_URL"`
+
+	// The list of public keys to initialize the graph with
+	InitPubkeys []string `env:"INIT_PUBKEYS"`
+
+	// whether to print stats or not
+	PrintStats bool `env:"PRINT_STATS"`
 }
 
-func NewSystemConfig() SystemConfig {
-	return SystemConfig{
-		RedisAddress:    "localhost:6379",
-		SQLiteURL:       "events.sqlite",
-		ChannelCapacity: 10_000,
+func NewSystem() System {
+	return System{
+		RedisAddress: "localhost:6379",
+		SqlitePath:   "events.sqlite",
 	}
 }
 
-func (c SystemConfig) Validate() error {
-	if c.ChannelCapacity < 0 {
-		return errors.New("channel capacity cannot be negative")
-	}
-
+func (c System) Validate() error {
 	for _, pk := range c.InitPubkeys {
 		if !nostr.IsValidPublicKey(pk) {
 			return fmt.Errorf("init pubkeys: \"%s\" is not valid hex pubkey", pk)
@@ -41,64 +46,37 @@ func (c SystemConfig) Validate() error {
 	return nil
 }
 
-func (c SystemConfig) Print() {
-	fmt.Println("System:")
-	fmt.Printf("  RedisAddress: %s\n", c.RedisAddress)
-	fmt.Printf("  SQLiteURL: %s\n", c.SQLiteURL)
-	fmt.Printf("  ChannelCapacity: %d\n", c.ChannelCapacity)
-	fmt.Printf("  InitPubkeys: %v\n", c.InitPubkeys)
-	fmt.Printf("  PrintStats: %v\n", c.PrintStats)
+func (c System) String() string {
+	return fmt.Sprintf("System:\n"+
+		"\tRedisAddress: %s\n"+
+		"\tSqlitePath:   %s\n"+
+		"\tInitPubkeys:  %v\n"+
+		"\tPrintStats:   %v",
+		c.RedisAddress, c.SqlitePath, c.InitPubkeys, c.PrintStats)
 }
 
 // The configuration parameters for the system and the main processes
 type Config struct {
-	SystemConfig
-	Firehose pipe.FirehoseConfig
-	Fetcher  pipe.FetcherConfig
-	Arbiter  pipe.ArbiterConfig
-	Engine   pipe.EngineConfig
+	System
+	Pool     pool.Config
+	Firehose firehose.Config
+	Recorder recorder.Config
+	Fetcher  fetcher.Config
+	Arbiter  arbiter.Config
+	Engine   engine.Config
 }
 
 // New returns a config with default parameters
 func New() Config {
 	return Config{
-		SystemConfig: NewSystemConfig(),
-		Firehose:     pipe.NewFirehoseConfig(),
-		Fetcher:      pipe.NewFetcherConfig(),
-		Arbiter:      pipe.NewArbiterConfig(),
-		Engine:       pipe.NewEngineConfig(),
+		System:   NewSystem(),
+		Pool:     pool.NewConfig(),
+		Firehose: firehose.NewConfig(),
+		Recorder: recorder.NewConfig(),
+		Fetcher:  fetcher.NewConfig(),
+		Arbiter:  arbiter.NewConfig(),
+		Engine:   engine.NewConfig(),
 	}
-}
-
-func (c Config) Validate() error {
-	if err := c.SystemConfig.Validate(); err != nil {
-		return fmt.Errorf("System: %w", err)
-	}
-
-	if err := c.Firehose.Validate(); err != nil {
-		return fmt.Errorf("Firehose: %w", err)
-	}
-
-	if err := c.Fetcher.Validate(); err != nil {
-		return fmt.Errorf("Fetcher: %w", err)
-	}
-
-	if err := c.Arbiter.Validate(); err != nil {
-		return fmt.Errorf("Arbiter: %w", err)
-	}
-
-	if err := c.Engine.Validate(); err != nil {
-		return fmt.Errorf("Engine: %w", err)
-	}
-	return nil
-}
-
-func (c Config) Print() {
-	c.SystemConfig.Print()
-	c.Firehose.Print()
-	c.Fetcher.Print()
-	c.Arbiter.Print()
-	c.Engine.Print()
 }
 
 // Load creates a new [Config] with default parameters.
@@ -108,10 +86,40 @@ func Load() (Config, error) {
 	if err := env.Parse(&config); err != nil {
 		return Config{}, fmt.Errorf("config.Load: %w", err)
 	}
-
-	if err := config.Validate(); err != nil {
-		return Config{}, fmt.Errorf("config.Load: %w", err)
-	}
-
 	return config, nil
+}
+
+func (c Config) Validate() error {
+	if err := c.System.Validate(); err != nil {
+		return fmt.Errorf("System: %w", err)
+	}
+	if err := c.Pool.Validate(); err != nil {
+		return fmt.Errorf("Pool: %w", err)
+	}
+	if err := c.Firehose.Validate(); err != nil {
+		return fmt.Errorf("Firehose: %w", err)
+	}
+	if err := c.Recorder.Validate(); err != nil {
+		return fmt.Errorf("Recorder: %w", err)
+	}
+	if err := c.Fetcher.Validate(); err != nil {
+		return fmt.Errorf("Fetcher: %w", err)
+	}
+	if err := c.Arbiter.Validate(); err != nil {
+		return fmt.Errorf("Arbiter: %w", err)
+	}
+	if err := c.Engine.Validate(); err != nil {
+		return fmt.Errorf("Engine: %w", err)
+	}
+	return nil
+}
+
+func (c Config) String() string {
+	return c.System.String() +
+		c.Pool.String() +
+		c.Firehose.String() +
+		c.Recorder.String() +
+		c.Fetcher.String() +
+		c.Arbiter.String() +
+		c.Engine.String()
 }
