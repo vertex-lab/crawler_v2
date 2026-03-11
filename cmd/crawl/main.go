@@ -32,13 +32,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	logger, close, err := NewFileLogger("crawl.log", slog.LevelDebug)
-	if err != nil {
-		panic(err)
-	}
-	defer close()
-	slog.SetDefault(logger)
-
 	slog.Info("--------- starting up the crawler ---------")
 	defer slog.Info("-------------------------------------------------")
 
@@ -67,7 +60,13 @@ func main() {
 	defer store.Close()
 	slog.Info("sqlite connected", "path", config.SqlitePath)
 
-	pool, err := pool.New(config.Pool, relays.WithLogger(logger))
+	poolLogger, close, err := NewFileLogger("pool.log", slog.LevelDebug)
+	if err != nil {
+		panic(err)
+	}
+	defer close()
+
+	pool, err := pool.New(config.Pool, relays.WithLogger(poolLogger))
 	if err != nil {
 		panic(err)
 	}
@@ -137,42 +136,3 @@ func NewFileLogger(path string, level slog.Level) (*slog.Logger, func() error, e
 	l := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level}))
 	return l, f.Close, nil
 }
-
-// func printStats(
-// 	ctx context.Context,
-// 	recorderQueue, engineQueue chan *nostr.Event,
-// 	fetcherQueue chan string,
-// ) {
-// 	filename := "stats.log"
-// 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-// 	if err != nil {
-// 		panic(fmt.Errorf("failed to open log file %s: %w", filename, err))
-// 	}
-
-// 	defer file.Close()
-// 	log := log.New(file, "stats: ", log.LstdFlags)
-
-// 	ticker := time.NewTicker(10 * time.Second)
-// 	defer ticker.Stop()
-
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			return
-
-// 		case <-ticker.C:
-// 			goroutines := runtime.NumGoroutine()
-// 			memStats := new(runtime.MemStats)
-// 			runtime.ReadMemStats(memStats)
-
-// 			log.Println("---------------------------------------")
-// 			log.Printf("Recorder queue: %d/%dn", len(recorderQueue), cap(recorderQueue))
-// 			log.Printf("Engine queue: %d/%dn", len(engineQueue), cap(engineQueue))
-// 			log.Printf("Fetcher queue: %d/%dn", len(fetcherQueue), cap(fetcherQueue))
-// 			log.Printf("walks tracker: %vn", pipe.WalksTracker.Load())
-// 			log.Printf("goroutines: %dn", goroutines)
-// 			log.Printf("memory usage: %.2f MBn", float64(memStats.Alloc)/(1024*1024))
-// 			log.Println("---------------------------------------")
-// 		}
-// 	}
-// }
