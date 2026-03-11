@@ -180,43 +180,68 @@ func (p *Pool) waitConnected(ctx context.Context) ([]*T, error) {
 	}
 }
 
-// Add adds a relay URL to the pool.
-// Add is idempotent, meaning it will not add the same URL multiple times.
-func (p *Pool) Add(url string) error {
-	if err := ValidateURL(url); err != nil {
-		return fmt.Errorf("failed to add relay: %w", err)
-	}
-
-	select {
-	case <-p.done:
-		return fmt.Errorf("failed to add relay: %w", ErrPoolClosed)
-
-	case p.sessionOps <- sessionOp{url: url, remove: false}:
+// Add adds one or more relay URLs to the pool.
+// Add is idempotent, meaning duplicate URLs are ignored.
+// Invalid URLs are reported and skipped.
+func (p *Pool) Add(urls ...string) error {
+	if len(urls) == 0 {
 		return nil
-
-	default:
-		return fmt.Errorf("failed to add relay: %w", ErrSendFailed)
 	}
+
+	urls = slicex.Unique(urls)
+	var errs []error
+
+	for i, url := range urls {
+		if err := ValidateURL(url); err != nil {
+			errs = append(errs, fmt.Errorf("failed to add relay %q: %w", url, err))
+			continue
+		}
+
+		select {
+		case <-p.done:
+			errs = append(errs, fmt.Errorf("failed to add %d relays: %w", len(urls)-i, ErrPoolClosed))
+			return errors.Join(errs...)
+
+		case p.sessionOps <- sessionOp{url: url, remove: false}:
+
+		default:
+			errs = append(errs, fmt.Errorf("failed to add %d relays: %w", len(urls)-i, ErrSendFailed))
+			return errors.Join(errs...)
+		}
+	}
+	return errors.Join(errs...)
 }
 
-// Remove removes a relay URL from the pool.
-// Remove is idempotent, meaning it will not remove the same URL multiple times,
-// and won't return an error if the URL is not in the pool.
-func (p *Pool) Remove(url string) error {
-	if err := ValidateURL(url); err != nil {
-		return fmt.Errorf("failed to add relay: %w", err)
-	}
-
-	select {
-	case <-p.done:
-		return fmt.Errorf("failed to remove relay: %w", ErrPoolClosed)
-
-	case p.sessionOps <- sessionOp{url: url, remove: true}:
+// Remove removes one or more relay URLs from the pool.
+// Remove is idempotent, meaning duplicate URLs are ignored, and removing a relay that is
+// not in the pool is a no-op. Invalid URLs are reported and skipped.
+func (p *Pool) Remove(urls ...string) error {
+	if len(urls) == 0 {
 		return nil
-
-	default:
-		return fmt.Errorf("failed to remove relay: %w", ErrSendFailed)
 	}
+
+	urls = slicex.Unique(urls)
+	var errs []error
+
+	for i, url := range urls {
+		if err := ValidateURL(url); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove relay %q: %w", url, err))
+			continue
+		}
+
+		select {
+		case <-p.done:
+			errs = append(errs, fmt.Errorf("failed to remove %d relays: %w", len(urls)-i, ErrPoolClosed))
+			return errors.Join(errs...)
+
+		case p.sessionOps <- sessionOp{url: url, remove: true}:
+
+		default:
+			errs = append(errs, fmt.Errorf("failed to remove %d relays: %w", len(urls)-i, ErrSendFailed))
+			return errors.Join(errs...)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // sessionOp represents an operation that modifies the pool's sessions.
