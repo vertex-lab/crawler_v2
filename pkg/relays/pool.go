@@ -82,7 +82,7 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	for _, url := range urls {
 		s := p.newSession(url)
 		p.sessions[url] = s
-		go s.run()
+		p.wg.Go(s.run)
 	}
 	go p.run()
 	return p, nil
@@ -431,11 +431,11 @@ func (p *Pool) run() {
 
 			s := p.newSession(op.url)
 			p.sessions[op.url] = s
+			p.wg.Go(s.run)
 
 			for _, stream := range p.streams {
 				s.openSub(stream.id, stream.filters, stream.events)
 			}
-			go s.run()
 
 		case reply := <-p.view:
 			view := relayView{
@@ -465,6 +465,7 @@ func (p *Pool) run() {
 
 				new := p.newSession(url)
 				p.sessions[url] = new
+				p.wg.Go(new.run)
 
 				for _, stream := range p.streams {
 					// to avoid duplicate events, retry each subscription with filters whose since
@@ -476,7 +477,6 @@ func (p *Pool) run() {
 					}
 					new.openSub(stream.id, withSince(stream.filters, lastEvent), stream.events)
 				}
-				go new.run()
 			}
 		}
 	}
@@ -542,9 +542,6 @@ func (s *session) Err() error {
 }
 
 func (s *session) run() {
-	s.pool.wg.Add(1)
-	defer s.pool.wg.Done()
-
 	if s.pool.isClosing.Load() {
 		// fast path disconnect to avoid connection attempts during shutdown
 		s.close()
