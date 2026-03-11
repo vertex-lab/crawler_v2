@@ -253,31 +253,34 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 	}
 
 	pubkeys := ParsePubkeys(event)
-	newFollows, err := e.graph.NodeIDs(ctx, pubkeys...)
+	nodes, err := e.graph.NodeIDs(ctx, pubkeys...)
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
 
+	newFollows := make([]graph.ID, 0, len(nodes))
 	var addedPks []string
-	if author.Status == graph.StatusActive {
-		// to avoid sybil attacks, active nodes are the only ones
-		// that can add new pubkeys to the database
-		for i, ID := range newFollows {
-			if ID == "" {
-				// when the ID is unknown, add valid pubkeys to the graph
-				pk := pubkeys[i]
-				if len(pk) != 64 || !nostr.IsValidPublicKey(pk) {
-					continue
-				}
 
-				newID, err := e.graph.AddNode(ctx, pk)
-				if err != nil {
-					return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
-				}
+	for i, ID := range nodes {
+		if ID != "" {
+			newFollows = append(newFollows, ID)
+		}
 
-				newFollows[i] = newID
-				addedPks = append(addedPks, pk)
+		if ID == "" && author.Status == graph.StatusActive {
+			// add unknown pubkeys to the graph only if the author
+			// of the follow-list is active / trustworthy
+			pk := pubkeys[i]
+			if len(pk) != 64 || !nostr.IsValidPublicKey(pk) {
+				continue
 			}
+
+			newID, err := e.graph.AddNode(ctx, pk)
+			if err != nil {
+				return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
+			}
+
+			newFollows = append(newFollows, newID)
+			addedPks = append(addedPks, pk)
 		}
 	}
 
