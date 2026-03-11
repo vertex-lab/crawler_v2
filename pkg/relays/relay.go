@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,7 @@ type T struct {
 	// TODO: we could add a Hooks struct
 	settings relaySettings
 
+	wg        sync.WaitGroup
 	isClosing atomic.Bool
 	done      chan struct{}
 	err       error // reason for closing
@@ -79,8 +81,8 @@ func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 	}
 	r.conn = conn
 
-	go r.read()
-	go r.write()
+	r.wg.Go(r.read)
+	r.wg.Go(r.write)
 	return r, nil
 }
 
@@ -93,6 +95,7 @@ func (r *T) URL() string {
 // Multiple calls to Close are a no-op.
 func (r *T) Close() {
 	r.close(nil)
+	r.wg.Wait()
 }
 
 // close closes the relay with the given error.
