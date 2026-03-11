@@ -86,11 +86,12 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		arbiter.Run(ctx, engine.WalksUpdated, fetcher.Enqueue)
+		arbiter.Run(ctx, fetcher.Enqueue)
 	}()
 
 	go func() {
 		defer wg.Done()
+		engine.After.WalksUpdated = arbiter.TrackWalks
 		engine.Sync(ctx)
 	}()
 

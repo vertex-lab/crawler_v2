@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
@@ -15,22 +16,26 @@ import (
 // T represents the Arbiter, which periodically scans the graph
 // for nodes to promote or demote based on their pagerank.
 type T struct {
-	config Config
 	db     regraph.DB
+	config Config
+
+	walksChanged atomic.Int64
 }
 
 func New(c Config, db regraph.DB) *T {
 	return &T{
-		config: c,
 		db:     db,
+		config: c,
 	}
 }
 
-func (a *T) Run(
-	ctx context.Context,
-	walksUpdated func() int,
-	onPromotion func(string) error,
-) {
+// TrackWalks increments the number of walks changed, which is used to decide when to proceed with another scan.
+func (a *T) TrackWalks(_, new []walks.Walk) error {
+	a.walksChanged.Add(int64(len(new)))
+	return nil
+}
+
+func (a *T) Run(ctx context.Context, onPromotion func(string) error) {
 	slog.Info("Arbiter: ready")
 	defer slog.Info("Arbiter: shut down")
 
@@ -49,8 +54,6 @@ func (a *T) Run(
 	ticker := time.NewTicker(a.config.PollInterval)
 	defer ticker.Stop()
 
-	updated := 0
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -68,12 +71,12 @@ func (a *T) Run(
 				continue
 			}
 
-			updated += walksUpdated()
-			change := float64(updated) / float64(total)
+			changed := a.walksChanged.Load()
+			changeRatio := float64(changed) / float64(total)
 
-			if change >= a.config.Activation {
+			if changeRatio >= a.config.Activation {
 				scan()
-				updated = 0
+				a.walksChanged.Add(-changed)
 			}
 		}
 	}

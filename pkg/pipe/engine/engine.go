@@ -13,6 +13,7 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
+	"github.com/vertex-lab/crawler_v2/pkg/relays"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 )
@@ -23,18 +24,38 @@ var (
 )
 
 // T is the unified engine that consumes events from an internal queue and
-// dispatches logic by event kind.
+// dispatches logic by event kind. Engine can be configured with [AfterHooks]
+// to observe and react to events after they are processed.
+// Such configuration must happen before the engine is started with Ingest or Sync.
 type T struct {
 	store *sqlite.Store
 	graph regraph.DB
 	cache *walks.CachedWalker
 
+	After  AfterHooks // user configurable hooks
+	config Config
+
 	isClosing atomic.Bool
 	events    chan *nostr.Event
+}
 
-	// Updated by kind:3 processing; read/drained by Arbiter polling.
-	walksUpdated atomic.Int64
-	config       Config
+// AfterHooks groups optional callbacks invoked by the engine after specific
+// processing steps complete successfully.
+//
+// These hooks are observational and are intended for follow-up side effects
+// outside the engine's core responsibilities.
+type AfterHooks struct {
+	// PubkeysAdded is called after the engine has added newly discovered pubkeys
+	// to the graph storage while processing an event.
+	PubkeysAdded func(pubkeys []string) error
+
+	// RelaysDiscovered is called after the engine has extracted relay URLs from an
+	// accepted relay-list event.
+	RelaysDiscovered func(relays []string) error
+
+	// WalksUpdated is called after the engine has updated random walks in the graph.
+	// old represents the old walks, and new represents the walks after the update.
+	WalksUpdated func(old, new []walks.Walk) error
 }
 
 // New creates a new Engine instance.
@@ -68,11 +89,6 @@ func (e *T) Enqueue(event *nostr.Event) error {
 	default:
 		return ErrQueueFull
 	}
-}
-
-// WalksUpdated returns how many walk updates happened since the previous call.
-func (e *T) WalksUpdated() int {
-	return int(e.walksUpdated.Swap(0))
 }
 
 // Ingest starts the engine in live ingestion mode.
@@ -146,6 +162,18 @@ func (e *T) processIngest(event *nostr.Event) error {
 		}
 		return nil
 
+	case nostr.KindRelayListMetadata:
+		replaced, err := e.store.Replace(ctx, event)
+		if err != nil {
+			return err
+		}
+
+		if replaced && e.After.RelaysDiscovered != nil {
+			relays := ParseRelays(event)
+			return e.After.RelaysDiscovered(relays)
+		}
+		return nil
+
 	default:
 		// other kinds are archived normally.
 		return e.archive(ctx, event)
@@ -204,12 +232,8 @@ func (e *T) updateGraph(ctx context.Context, event *nostr.Event) error {
 	if err := e.cache.Update(ctx, delta); err != nil {
 		return err
 	}
-	updated, err := e.updateWalks(ctx, delta)
-	if err != nil {
+	if err := e.updateWalks(ctx, delta); err != nil {
 		return err
-	}
-	if updated > 0 {
-		e.walksUpdated.Add(int64(updated))
 	}
 	return nil
 }
@@ -226,7 +250,7 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
 
-	pubkeys := parsePubkeys(event)
+	pubkeys := ParsePubkeys(event)
 	onMissing := regraph.Ignore
 	if author.Status == graph.StatusActive {
 		// active nodes are the only ones that can add new pubkeys to the database
@@ -240,34 +264,39 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 	return graph.NewDelta(event.Kind, author.ID, oldFollows, newFollows), nil
 }
 
-// updateWalks updates random walks based on delta and returns number of newly written walks.
-func (e *T) updateWalks(ctx context.Context, delta graph.Delta) (int, error) {
+// updateWalks updates random walks based on delta.
+func (e *T) updateWalks(ctx context.Context, delta graph.Delta) error {
 	if delta.Size() == 0 {
-		return 0, nil
+		return nil
 	}
 
 	visiting, err := e.graph.WalksVisiting(ctx, delta.Node, -1)
 	if err != nil {
-		return 0, fmt.Errorf("failed to update walks: %w", err)
+		return fmt.Errorf("failed to update walks: %w", err)
 	}
 
 	old, new, err := walks.ToUpdate(ctx, e.cache, delta, visiting)
 	if err != nil {
-		return 0, fmt.Errorf("failed to update walks: %w", err)
+		return fmt.Errorf("failed to update walks: %w", err)
 	}
 
 	if err := e.graph.ReplaceWalks(ctx, old, new); err != nil {
-		return 0, fmt.Errorf("failed to update walks: %w", err)
+		return fmt.Errorf("failed to update walks: %w", err)
 	}
-	return len(new), nil
+
+	if e.After.WalksUpdated != nil {
+		return e.After.WalksUpdated(old, new)
+	}
+	return nil
 }
 
-// Parse unique pubkeys (excluding author) from the "p" tags in the event.
-func parsePubkeys(event *nostr.Event) []string {
-	size := min(len(event.Tags), pipe.MaxTags)
+// ParsePubkeys parses unique pubkeys (excluding author) from the "p" tags in the event.
+// Pubkeys are not validated.
+func ParsePubkeys(e *nostr.Event) []string {
+	size := min(len(e.Tags), pipe.MaxTags)
 	pubkeys := make([]string, 0, size)
 
-	for _, tag := range event.Tags {
+	for _, tag := range e.Tags {
 		if len(pubkeys) > pipe.MaxTags {
 			break
 		}
@@ -281,11 +310,30 @@ func parsePubkeys(event *nostr.Event) []string {
 			continue
 		}
 
-		if pubkey == event.PubKey {
+		if pubkey == e.PubKey {
 			// remove self-follows
 			continue
 		}
 		pubkeys = append(pubkeys, pubkey)
 	}
 	return slicex.Unique(pubkeys)
+}
+
+// ParseRelays extracts valid relay URLs from the "r" tags in the event.
+func ParseRelays(e *nostr.Event) []string {
+	size := min(len(e.Tags), pipe.MaxTags)
+	urls := make([]string, 0, size)
+
+	for _, tag := range e.Tags {
+		if len(tag) < 2 || tag[0] != "r" {
+			continue
+		}
+
+		url := tag[1]
+		if err := relays.ValidateURL(url); err != nil {
+			continue
+		}
+		urls = append(urls, url)
+	}
+	return urls
 }
