@@ -264,8 +264,12 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 		// that can add new pubkeys to the database
 		for i, ID := range newFollows {
 			if ID == "" {
-				// happens when the pubkey is unknown
+				// when the ID is unknown, add valid pubkeys to the graph
 				pk := pubkeys[i]
+				if len(pk) != 64 || !nostr.IsValidPublicKey(pk) {
+					continue
+				}
+
 				newID, err := e.graph.AddNode(ctx, pk)
 				if err != nil {
 					return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
