@@ -1,8 +1,6 @@
 module github.com/vertex-lab/crawler_v2
 
-go 1.24.1
-
-toolchain go1.24.3
+go 1.25
 
 require (
 	github.com/caarlos0/env/v11 v11.4.0
