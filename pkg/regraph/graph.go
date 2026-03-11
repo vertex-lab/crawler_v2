@@ -464,7 +464,7 @@ func Sentinel(context.Context, DB, string) (graph.ID, error) { return "-1", nil 
 
 // AddValid pubkeys to the database if they were not already present
 func AddValid(ctx context.Context, db DB, pubkey string) (graph.ID, error) {
-	if !nostr.IsValidPublicKey(pubkey) {
+	if len(pubkey) != 64 || !nostr.IsValidPublicKey(pubkey) {
 		return "", nil
 	}
 	return db.AddNode(ctx, pubkey)
@@ -477,29 +477,22 @@ func (db DB) Resolve(ctx context.Context, pubkeys []string, onMissing MissingHan
 		return nil, fmt.Errorf("failed to resolve pubkeys: %w", err)
 	}
 
-	j := 0 // write index
+	resolved := make([]graph.ID, 0, len(IDs))
 	for i, ID := range IDs {
-		switch ID {
-		case "":
-			ID, err = onMissing(ctx, db, pubkeys[i])
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve pubkey %q: %w", pubkeys[i], err)
-			}
+		if ID != "" {
+			resolved = append(resolved, ID)
+			continue
+		}
 
-			if ID != "" {
-				IDs[j] = ID
-				j++
-			}
-
-		default:
-			if j != i {
-				IDs[j] = ID // write only if necessary
-			}
-			j++
+		ID, err = onMissing(ctx, db, pubkeys[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve pubkey %q: %w", pubkeys[i], err)
+		}
+		if ID != "" {
+			resolved = append(resolved, ID)
 		}
 	}
-
-	return IDs[:j], nil
+	return resolved, nil
 }
 
 // ScanNodes to return a batch of node IDs of size roughly proportional to limit.
