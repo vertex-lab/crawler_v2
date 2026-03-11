@@ -22,7 +22,7 @@ type Config struct {
 	PromotionWait time.Duration `env:"ARBITER_PROMOTION_WAIT"`
 
 	// PollInterval is the interval duration for checking the number of walks that changed since the last check.
-	PollInterval time.Duration `env:"ARBITER_PING_WAIT"`
+	PollInterval time.Duration `env:"ARBITER_POLL_INTERVAL"`
 
 	// PrintStats controls whether the Arbiter prints stats after every scan.
 	PrintStats bool `env:"ARBITER_PRINT_STATS"`

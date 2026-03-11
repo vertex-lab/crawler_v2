@@ -20,14 +20,11 @@ type System struct {
 	// The address of the Redis server
 	RedisAddress string `env:"REDIS_ADDRESS"`
 
-	// The path to the SQLite database file
-	SqlitePath string `env:"SQLITE_URL"`
+	// The path to the Sqlite database file
+	SqlitePath string `env:"SQLITE_PATH"`
 
 	// The list of public keys to initialize the graph with
 	InitPubkeys []string `env:"INIT_PUBKEYS"`
-
-	// whether to print stats or not
-	PrintStats bool `env:"PRINT_STATS"`
 }
 
 func NewSystem() System {
@@ -50,9 +47,8 @@ func (c System) String() string {
 	return fmt.Sprintf("System:\n"+
 		"\tRedisAddress: %s\n"+
 		"\tSqlitePath:   %s\n"+
-		"\tInitPubkeys:  %v\n"+
-		"\tPrintStats:   %v",
-		c.RedisAddress, c.SqlitePath, c.InitPubkeys, c.PrintStats)
+		"\tInitPubkeys:  %v\n",
+		c.RedisAddress, c.SqlitePath, c.InitPubkeys)
 }
 
 // The configuration parameters for the system and the main processes
