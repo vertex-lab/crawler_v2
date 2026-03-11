@@ -47,11 +47,11 @@ type T struct {
 type AfterHooks struct {
 	// PubkeysAdded is called after the engine has added newly discovered pubkeys
 	// to the graph storage while processing an event.
-	PubkeysAdded func(pubkeys []string) error
+	PubkeysAdded func(pubkeys ...string) error
 
 	// RelaysDiscovered is called after the engine has extracted relay URLs from an
 	// accepted relay-list event.
-	RelaysDiscovered func(relays []string) error
+	RelaysDiscovered func(relays ...string) error
 
 	// WalksUpdated is called after the engine has updated random walks in the graph.
 	// old represents the old walks, and new represents the walks after the update.
@@ -170,7 +170,7 @@ func (e *T) processIngest(event *nostr.Event) error {
 
 		if replaced && e.After.RelaysDiscovered != nil {
 			relays := ParseRelays(event)
-			return e.After.RelaysDiscovered(relays)
+			return e.After.RelaysDiscovered(relays...)
 		}
 		return nil
 

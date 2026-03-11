@@ -122,6 +122,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		engine.After.WalksUpdated = arbiter.TrackWalks
+		engine.After.RelaysDiscovered = pool.Add
 		engine.Ingest(ctx)
 	}()
 
