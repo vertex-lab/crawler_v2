@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/crawler_v2/pkg/core/pool"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe/pool"
 )
 
 var (
@@ -39,7 +39,7 @@ func TestFirehose(t *testing.T) {
 	}
 
 	config := NewConfig()
-	policy := newPolicy(t, &mockDB{exists: map[string]bool{pip: true}})
+	policy := ExistPolicy(&mockDB{exists: map[string]bool{pip: true}}, 128)
 
 	firehose := New(config, pool, policy)
 	firehose.Run(ctx, func(e *nostr.Event) error {
@@ -99,7 +99,7 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("allows pubkey present in store", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{pubkey: true}}
-		gate := newPolicy(t, store)
+		gate := ExistPolicy(store, 128)
 		if !gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return true for a known pubkey")
 		}
@@ -107,7 +107,7 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("denies pubkey absent from store", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{}}
-		gate := newPolicy(t, store)
+		gate := ExistPolicy(store, 128)
 		if gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return false for an unknown pubkey")
 		}
@@ -115,7 +115,7 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("denies pubkey on store error", func(t *testing.T) {
 		store := &mockDB{err: errors.New("redis down")}
-		gate := newPolicy(t, store)
+		gate := ExistPolicy(store, 128)
 		if gate.Allow(ctx, pubkey) {
 			t.Error("expected Allows to return false when the store errors")
 		}
@@ -123,7 +123,7 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("caches positive lookups", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{pubkey: true}}
-		gate := newPolicy(t, store)
+		gate := ExistPolicy(store, 128)
 
 		gate.Allow(ctx, pubkey)
 		gate.Allow(ctx, pubkey)
@@ -136,7 +136,7 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("does not cache negative lookups", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{}}
-		gate := newPolicy(t, store)
+		gate := ExistPolicy(store, 128)
 
 		gate.Allow(ctx, pubkey)
 		gate.Allow(ctx, pubkey)
@@ -145,13 +145,4 @@ func TestExistPolicy(t *testing.T) {
 			t.Errorf("expected 2 store calls, got %d", store.calls)
 		}
 	})
-}
-
-func newPolicy(t *testing.T, store *mockDB) *ExistPolicy {
-	t.Helper()
-	gate, err := NewExistPolicy(store, 128)
-	if err != nil {
-		t.Fatalf("NewExistPolicy: %v", err)
-	}
-	return gate
 }

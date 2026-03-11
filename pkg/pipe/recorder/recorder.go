@@ -13,7 +13,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/redis/go-redis/v9"
-	"github.com/vertex-lab/crawler_v2/pkg/core"
+	core "github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 )
 

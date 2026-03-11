@@ -2,6 +2,7 @@ package firehose
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 
@@ -34,8 +35,8 @@ func New(c Config, pool *relays.Pool, policy Policy) *T {
 
 // Run connects to the relays and forwards incoming events until the context is cancelled.
 func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
-	slog.Info("T: ready")
-	defer slog.Info("T: shut down")
+	slog.Info("Firehose: ready")
+	defer slog.Info("Firehose: shut down")
 
 	stream, err := f.pool.Stream("vertex-firehose", f.config.Filter())
 	if err != nil {
@@ -80,20 +81,23 @@ type db interface {
 // ExistPolicy is a [Policy] that allows a pubkey if and only if it already
 // exists in the database. It keeps an LRU cache because the assumption is that
 // keys are never removed from the database.
-type ExistPolicy struct {
+type existPolicy struct {
 	cache *lru.Cache[string, struct{}]
 	db    db
 }
 
-func NewExistPolicy(db db, cacheSize int) (*ExistPolicy, error) {
+// ExistPolicy is a [Policy] that allows a pubkey if and only if it already
+// exists in the database. It keeps an LRU cache because the assumption is that
+// keys are never removed from the database.
+func ExistPolicy(db db, cacheSize int) *existPolicy {
 	cache, err := lru.New[string, struct{}](cacheSize)
 	if err != nil {
-		return nil, err
+		panic(fmt.Errorf("Firehose ExistPolicy: %w", err))
 	}
-	return &ExistPolicy{cache: cache, db: db}, nil
+	return &existPolicy{cache: cache, db: db}
 }
 
-func (p *ExistPolicy) Allow(ctx context.Context, pubkey string) bool {
+func (p *existPolicy) Allow(ctx context.Context, pubkey string) bool {
 	if p.cache.Contains(pubkey) {
 		return true
 	}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vertex-lab/crawler_v2/pkg/core"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 )
 
 type Config struct {
@@ -27,7 +27,7 @@ type Config struct {
 
 func NewConfig() Config {
 	return Config{
-		Kinds:    core.ProfileKinds,
+		Kinds:    pipe.ProfileKinds,
 		Queue:    10_000,
 		Batch:    100,
 		Interval: time.Minute,

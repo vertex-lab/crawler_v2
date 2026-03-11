@@ -10,8 +10,8 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
-	"github.com/vertex-lab/crawler_v2/pkg/core"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
@@ -97,9 +97,8 @@ func (e *T) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			e.isClosing.Store(true)
-
 			// process buffered items
+			e.isClosing.Store(true)
 			for {
 				select {
 				case event := <-e.events:
@@ -236,11 +235,11 @@ func (e *T) updateWalks(ctx context.Context, delta graph.Delta) (int, error) {
 
 // Parse unique pubkeys (excluding author) from the "p" tags in the event.
 func parsePubkeys(event *nostr.Event) []string {
-	size := min(len(event.Tags), core.MaxTags)
+	size := min(len(event.Tags), pipe.MaxTags)
 	pubkeys := make([]string, 0, size)
 
 	for _, tag := range event.Tags {
-		if len(pubkeys) > core.MaxTags {
+		if len(pubkeys) > pipe.MaxTags {
 			break
 		}
 

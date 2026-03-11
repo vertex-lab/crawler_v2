@@ -17,23 +17,20 @@ import (
 type T struct {
 	config Config
 	db     regraph.DB
-
-	// Typically wired as engine.WalksUpdated.
-	walksUpdated func() int
 }
 
-func New(c Config, db regraph.DB, walksUpdated func() int) *T {
-	if walksUpdated == nil {
-		panic("arbiter.New: walksUpdated is nil")
-	}
+func New(c Config, db regraph.DB) *T {
 	return &T{
-		config:       c,
-		db:           db,
-		walksUpdated: walksUpdated,
+		config: c,
+		db:     db,
 	}
 }
 
-func (a *T) Run(ctx context.Context, onPromotion func(string) error) {
+func (a *T) Run(
+	ctx context.Context,
+	walksUpdated func() int,
+	onPromotion func(string) error,
+) {
 	slog.Info("Arbiter: ready")
 	defer slog.Info("Arbiter: shut down")
 
@@ -71,7 +68,7 @@ func (a *T) Run(ctx context.Context, onPromotion func(string) error) {
 				continue
 			}
 
-			updated += a.walksUpdated()
+			updated += walksUpdated()
 			change := float64(updated) / float64(total)
 
 			if change >= a.config.Activation {

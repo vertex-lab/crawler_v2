@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/crawler_v2/pkg/core"
+	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 )
 
 type Config struct {
@@ -24,7 +24,7 @@ type Config struct {
 
 func NewConfig() Config {
 	return Config{
-		Kinds:     core.AllKinds,
+		Kinds:     pipe.AllKinds,
 		Offset:    time.Minute,
 		CacheSize: 100_000,
 	}
