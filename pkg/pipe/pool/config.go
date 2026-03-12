@@ -52,13 +52,18 @@ type Config struct {
 
 	// SubRetry is the duration to wait before retrying a closed subscription. Default is 10 seconds.
 	SubRetry time.Duration `env:"POOL_SUB_RETRY"`
+
+	// StatsInterval determines how often pool statistics are logged.
+	// Default is 6 hours. If it's set to 0, statistics are not logged.
+	StatsInterval time.Duration `env:"POOL_STATS_INTERVAL"`
 }
 
 func NewConfig() Config {
 	return Config{
-		InitRelays: DefaultRelays,
-		RelayRetry: 10 * time.Minute,
-		SubRetry:   10 * time.Second,
+		InitRelays:    DefaultRelays,
+		RelayRetry:    10 * time.Minute,
+		SubRetry:      10 * time.Second,
+		StatsInterval: 6 * time.Hour,
 	}
 }
 
