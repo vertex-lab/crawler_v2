@@ -47,7 +47,7 @@ type Config struct {
 	// InitRelays is a list of relay URLs to be added to the pool on startup.
 	InitRelays []string `env:"POOL_RELAYS"`
 
-	// RelayRetry is the duration to wait before retrying a failed relay connection. Default is 10 minutes.
+	// RelayRetry is the duration to wait before retrying a failed relay connection. Default is 1 minute.
 	RelayRetry time.Duration `env:"POOL_RELAY_RETRY"`
 
 	// SubRetry is the duration to wait before retrying a closed subscription. Default is 10 seconds.
@@ -61,7 +61,7 @@ type Config struct {
 func NewConfig() Config {
 	return Config{
 		InitRelays:    DefaultRelays,
-		RelayRetry:    10 * time.Minute,
+		RelayRetry:    1 * time.Minute,
 		SubRetry:      10 * time.Second,
 		StatsInterval: 6 * time.Hour,
 	}

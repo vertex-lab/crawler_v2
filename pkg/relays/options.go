@@ -69,8 +69,8 @@ func (o loggerOption) applyPool(p *Pool) error {
 	return nil
 }
 
-// WithRelayRetry sets the interval for retrying relay connections that failed.
-// Default is 10 minutes. If the interval is <= 0, retrying is disabled.
+// WithRelayRetry sets the base interval for retrying relay connections that failed.
+// Default is 1 minute. If the interval is <= 0, retrying is disabled.
 func WithRelayRetry(d time.Duration) PoolOption {
 	return relayRetryOption{d: d}
 }
@@ -252,7 +252,7 @@ type poolSettings struct {
 
 func defaultPoolSettings() poolSettings {
 	return poolSettings{
-		relayRetry: 10 * time.Minute,
+		relayRetry: 1 * time.Minute,
 		subRetry:   10 * time.Second,
 	}
 }

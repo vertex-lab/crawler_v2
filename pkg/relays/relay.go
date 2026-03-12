@@ -259,7 +259,6 @@ func (r *T) read() {
 			if isUnexpectedClose(err) {
 				r.log.Debug("unexpected close error from relay", "relay", r.url, "error", err)
 			}
-
 			r.close(err)
 			return
 		}
