@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestIsRetriableErr(t *testing.T) {
+func TestIsRetriable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -148,14 +148,14 @@ func TestIsRetriableErr(t *testing.T) {
 		{
 			name:      "non connect error",
 			err:       errors.New("some other error"),
-			retriable: false,
+			retriable: true,
 		},
 	}
 
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			got := IsRetriableErr(test.err)
+			got := IsRetriable(test.err)
 			if got != test.retriable {
 				t.Fatalf("IsRetriableErr(%v) = %v, want %v", test.err, got, test.retriable)
 			}

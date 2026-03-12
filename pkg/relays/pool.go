@@ -34,6 +34,7 @@ type Pool struct {
 	streamOps chan streamOp
 
 	sessions   map[string]*session
+	retries    map[string]int // holds the retry count for each session URL
 	sessionOps chan sessionOp
 	view       chan chan relayView // holds the reply channel for relay views
 
@@ -61,6 +62,7 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 		streams:    make(map[string]*Stream),
 		streamOps:  make(chan streamOp, 100),
 		sessions:   make(map[string]*session, len(urls)),
+		retries:    make(map[string]int, len(urls)),
 		sessionOps: make(chan sessionOp, 100),
 		view:       make(chan chan relayView, 100),
 		log:        slog.Default(),
@@ -387,7 +389,7 @@ type streamOp struct {
 // cleanup clears all active sessions and streams.
 func (p *Pool) cleanup() {
 	for _, s := range p.sessions {
-		s.close()
+		s.close(nil)
 	}
 	clear(p.sessions)
 
@@ -443,8 +445,9 @@ func (p *Pool) run() {
 		case op := <-p.sessionOps:
 			if op.remove {
 				if s, ok := p.sessions[op.url]; ok {
-					s.close()
+					s.close(nil)
 					delete(p.sessions, op.url)
+					delete(p.retries, op.url)
 				}
 				continue
 			}
@@ -477,17 +480,29 @@ func (p *Pool) run() {
 					view.connected = append(view.connected, relay)
 				}
 			}
-
 			reply <- view
 
 		case <-retry:
 			for url, s := range p.sessions {
 				if s.isActive() {
+					delete(p.retries, url)
+					continue
+				}
+
+				if !IsRetriable(s.err) {
+					delete(p.sessions, url)
+					delete(p.retries, url)
+					continue
+				}
+
+				retries := p.retries[url]
+				if time.Since(s.closedAt) < backoff(p.settings.relayRetry, retries) {
 					continue
 				}
 
 				new := p.newSession(url)
 				p.sessions[url] = new
+				p.retries[url]++
 				p.wg.Go(new.run)
 
 				for _, stream := range p.streams {
@@ -507,19 +522,18 @@ func (p *Pool) run() {
 
 // session manages the connection to a single relay and all its subscriptions.
 // It periodically retries subscriptions that are closed by the relay.
-// When the relay disconnects entirely, the session reports back to the Pool and exits.
 type session struct {
 	url   string
 	relay atomic.Pointer[T]
+	pool  *Pool
 
 	subs   map[string]*Subscription
 	subOps chan subOp
 
-	pool *Pool
-
 	isClosing atomic.Bool
+	closedAt  time.Time // holds the time the session was closed
+	err       error     // holds the close error
 	done      chan struct{}
-	err       error // holds the disconnection error
 }
 
 // subOp represents an operation that modifies the session subscriptions.
@@ -543,38 +557,35 @@ func (p *Pool) newSession(url string) *session {
 	}
 }
 
-func (s *session) close() {
+func (s *session) close(err error) {
 	if s.isClosing.CompareAndSwap(false, true) {
+		s.closedAt = time.Now()
+		s.err = err
 		close(s.done)
 	}
 }
 
 // isActive returns true if the session is active.
 func (s *session) isActive() bool {
-	return !s.isClosing.Load()
-}
-
-// Err returns the error that caused the session to close, or nil if it's still active.
-func (s *session) Err() error {
 	select {
 	case <-s.done:
-		return s.err
+		return false
 	default:
-		return nil
+		return true
 	}
 }
 
 func (s *session) run() {
 	if s.pool.isClosing.Load() {
 		// fast path disconnect to avoid connection attempts during shutdown
-		s.close()
+		s.close(nil)
 		return
 	}
 
 	relay, err := New(context.Background(), s.url, s.pool.options...)
 	if err != nil {
 		s.pool.log.Debug("relay connection failed", "relay", s.url, "error", err)
-		s.close()
+		s.close(fmt.Errorf("relay connection failed: %w", err))
 		return
 	}
 	s.relay.Store(relay)
@@ -601,7 +612,7 @@ func (s *session) run() {
 
 		case <-relay.Done():
 			s.pool.log.Debug("relay disconnected", "relay", s.url, "error", relay.Err())
-			s.close()
+			s.close(fmt.Errorf("relay disconnected: %w", relay.Err()))
 			return
 
 		case op := <-s.subOps:
@@ -709,4 +720,13 @@ func withSince(f nostr.Filters, t time.Time) nostr.Filters {
 		c[i].Since = &ts
 	}
 	return c
+}
+
+// backoff returns the retry delay for the given number of previous retry attempts.
+// Attempt 0 retries immediately; subsequent attempts use quadratic backoff.
+func backoff(baseWait time.Duration, attempts int) time.Duration {
+	if attempts <= 0 {
+		return 0
+	}
+	return baseWait * time.Duration(attempts*attempts)
 }

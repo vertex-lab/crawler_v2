@@ -58,6 +58,7 @@ func (e *ConnectErr) Unwrap() error {
 }
 
 // IsRetriable returns true if the connection error is retriable.
+// By definition a nil error is retriable.
 func (e *ConnectErr) IsRetriable() bool {
 	if e == nil {
 		return true
@@ -119,8 +120,9 @@ func (e *ConnectErr) IsRetriable() bool {
 	return false
 }
 
-// IsRetriableErr returns true if the error is retriable.
-func IsRetriableErr(err error) bool {
+// IsRetriable returns true if the error is retriable.
+// By definition a nil error is retriable.
+func IsRetriable(err error) bool {
 	if err == nil {
 		return true
 	}
@@ -130,5 +132,5 @@ func IsRetriableErr(err error) bool {
 	if connErr, ok := err.(*ConnectErr); ok {
 		return connErr.IsRetriable()
 	}
-	return false
+	return true
 }
