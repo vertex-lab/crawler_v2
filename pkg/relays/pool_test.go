@@ -150,3 +150,97 @@ func TestPoolQuery(t *testing.T) {
 		t.Logf("[%d] received event %s", i, e.ID)
 	}
 }
+
+func TestValidateURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		url     string
+		isValid bool
+	}{
+		{
+			name:    "valid wss url",
+			url:     "wss://relay.example.com",
+			isValid: true,
+		},
+		{
+			name:    "valid ws url with path",
+			url:     "ws://relay.example.com/inbox",
+			isValid: true,
+		},
+		{
+			name:    "valid url with port",
+			url:     "wss://relay.example.com:4848",
+			isValid: true,
+		},
+		{
+			name:    "empty url",
+			url:     "",
+			isValid: false,
+		},
+		{
+			name:    "missing scheme",
+			url:     "relay.example.com",
+			isValid: false,
+		},
+		{
+			name:    "invalid scheme htestp",
+			url:     "htestp://relay.example.com",
+			isValid: false,
+		},
+		{
+			name:    "missing host",
+			url:     "wss://",
+			isValid: false,
+		},
+		{
+			name:    "userinfo not allowed",
+			url:     "wss://user:pass@relay.example.com",
+			isValid: false,
+		},
+		{
+			name:    "query string not allowed",
+			url:     "wss://relay.example.com?broadcast=true",
+			isValid: false,
+		},
+		{
+			name:    "fragment not allowed",
+			url:     "wss://relay.example.com#frag",
+			isValid: false,
+		},
+		{
+			name:    "invalid port",
+			url:     "wss://relay.example.com:abc",
+			isValid: false,
+		},
+		{
+			name:    "empty port",
+			url:     "wss://relay.example.com:",
+			isValid: true,
+		},
+		{
+			name:    "host is dot",
+			url:     "wss://.",
+			isValid: false,
+		},
+		{
+			name:    "relative path only",
+			url:     "/relay",
+			isValid: false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateURL(test.url)
+			if !test.isValid && err == nil {
+				t.Fatalf("ValidateURL(%q) expected error, got nil", test.url)
+			}
+			if test.isValid && err != nil {
+				t.Fatalf("ValidateURL(%q) unexpected error: %v", test.url, err)
+			}
+		})
+	}
+}

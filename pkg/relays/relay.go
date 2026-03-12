@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	ErrInvalidURL       = errors.New("invalid relay url")
 	ErrInvalidID        = errors.New("invalid event id")
 	ErrInvalidSignature = errors.New("invalid event signature")
 
@@ -49,7 +50,7 @@ type T struct {
 
 // New returns a connected Relay.
 // The context is only used to establish the connection; it does not control the lifetime of the relay.
-// Call relay.Close to close the connection and free resources.
+// Call relay.Close to close the relay and free resources.
 func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 	if err := ValidateURL(url); err != nil {
 		return nil, err
@@ -296,7 +297,7 @@ func (r *T) read() {
 
 			err = r.subs.Route(msg.SubID, &msg.Event)
 			if errors.Is(err, ErrInvalidSubMatch) {
-				r.log.Debug("event does not match the subscription filters", "relay", r.url)
+				r.log.Debug("failed to route event", "relay", r.url, "error", err)
 				continue
 			}
 			if err != nil {
@@ -398,7 +399,7 @@ func Compare(r1, r2 *T) int {
 // ValidateURL validates a Relay URL.
 func ValidateURL(u string) error {
 	if u == "" {
-		return errors.New("empty url")
+		return fmt.Errorf("%w: empty url", ErrInvalidURL)
 	}
 
 	parsed, err := url.Parse(u)
@@ -406,7 +407,19 @@ func ValidateURL(u string) error {
 		return err
 	}
 	if parsed.Scheme != "wss" && parsed.Scheme != "ws" {
-		return fmt.Errorf("invalid url scheme: %s", parsed.Scheme)
+		return fmt.Errorf("%w: invalid scheme: %s", ErrInvalidURL, parsed.Scheme)
+	}
+	if parsed.Host == "" || parsed.Host == "." {
+		return fmt.Errorf("%w: missing host", ErrInvalidURL)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("%w: userinfo is not allowed", ErrInvalidURL)
+	}
+	if parsed.RawQuery != "" {
+		return fmt.Errorf("%w: query string is not allowed", ErrInvalidURL)
+	}
+	if parsed.Fragment != "" {
+		return fmt.Errorf("%w: fragment is not allowed", ErrInvalidURL)
 	}
 	return nil
 }
