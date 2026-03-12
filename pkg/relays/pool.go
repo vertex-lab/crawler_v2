@@ -409,8 +409,12 @@ func (p *Pool) run() {
 	p.log.Info("relay pool is running")
 	defer p.log.Info("relay pool is down")
 
-	retry := time.NewTicker(p.settings.relayRetry)
-	defer retry.Stop()
+	var retry <-chan time.Time
+	if p.settings.relayRetry > 0 {
+		t := time.NewTicker(p.settings.relayRetry)
+		retry = t.C
+		defer t.Stop()
+	}
 
 	defer p.cleanup()
 
@@ -482,7 +486,7 @@ func (p *Pool) run() {
 			}
 			reply <- view
 
-		case <-retry.C:
+		case <-retry:
 			for url, s := range p.sessions {
 				if s.isActive() {
 					continue
@@ -585,8 +589,12 @@ func (s *session) run() {
 	s.pool.log.Debug("session is running", "relay", s.url)
 	defer s.pool.log.Debug("session is down", "relay", s.url)
 
-	retry := time.NewTicker(s.pool.settings.subRetry)
-	defer retry.Stop()
+	var retry <-chan time.Time
+	if s.pool.settings.subRetry > 0 {
+		t := time.NewTicker(s.pool.settings.subRetry)
+		retry = t.C
+		defer t.Stop()
+	}
 
 	for {
 		if s.isClosing.Load() {
@@ -627,7 +635,7 @@ func (s *session) run() {
 				continue
 			}
 
-		case <-retry.C:
+		case <-retry:
 			for id, sub := range s.subs {
 				if sub.IsActive() {
 					continue
