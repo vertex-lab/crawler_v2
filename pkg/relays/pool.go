@@ -90,8 +90,8 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 
 // relayView represents a snapshot of the pool's connected and disconnected relays.
 type relayView struct {
-	connected    []*T
-	disconnected []*T
+	connected    []*T     // connected relay types
+	notConnected []string // not connected relay URLs
 }
 
 // Close closes the pool and all the underlying relay connections.
@@ -123,12 +123,7 @@ func (p *Pool) Relays() (connected, disconnected []string) {
 	for i, r := range view.connected {
 		connected[i] = r.URL()
 	}
-
-	disconnected = make([]string, len(view.disconnected))
-	for i, r := range view.disconnected {
-		disconnected[i] = r.URL()
-	}
-	return connected, disconnected
+	return connected, view.notConnected
 }
 
 // relays returns a snapshot of the currently connected and disconnected relays in the pool.
@@ -474,21 +469,20 @@ func (p *Pool) run() {
 		case reply := <-p.view:
 			view := relayView{
 				connected:    make([]*T, 0, len(p.sessions)),
-				disconnected: make([]*T, 0, len(p.sessions)),
+				notConnected: make([]string, 0, len(p.sessions)),
 			}
 
 			for _, s := range p.sessions {
-				relay := s.relay.Load()
-				if relay == nil {
+				if !s.isActive() {
+					view.notConnected = append(view.notConnected, s.url)
 					continue
 				}
 
-				if s.isActive() {
+				if relay := s.relay.Load(); relay != nil {
 					view.connected = append(view.connected, relay)
-				} else {
-					view.disconnected = append(view.disconnected, relay)
 				}
 			}
+
 			reply <- view
 
 		case <-retry:
