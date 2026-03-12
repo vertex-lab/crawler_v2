@@ -180,7 +180,7 @@ func (r *subRouter) Route(id string, e *nostr.Event) error {
 	}
 
 	if r.verifyMatch && !s.filters.Match(e) {
-		return fmt.Errorf("%w: filters %v, event %s", ErrInvalidSubMatch, s.filters, e.ID)
+		return fmt.Errorf("%w: filters %v, event %s, pubkey %s, kind %d", ErrInvalidSubMatch, s.filters, e.ID, e.PubKey, e.Kind)
 	}
 
 	select {
