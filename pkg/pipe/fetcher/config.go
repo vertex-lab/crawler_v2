@@ -31,7 +31,7 @@ func NewConfig() Config {
 		Queue:    10_000,
 		Batch:    100,
 		Interval: time.Minute,
-		Timeout:  20 * time.Second,
+		Timeout:  10 * time.Second,
 	}
 }
 

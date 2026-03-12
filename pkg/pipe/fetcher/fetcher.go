@@ -69,20 +69,6 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 	slog.Info("Fetcher: ready")
 	defer slog.Info("Fetcher: shut down")
 
-	handle := func(pubkeys []string) error {
-		events, err := f.fetch(ctx, pubkeys)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-
-		for i := range events {
-			if err := forward(&events[i]); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
 	batch := make([]string, 0, f.config.Batch)
 	timer := time.After(f.config.Interval)
 
@@ -97,7 +83,7 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 				continue
 			}
 
-			if err := handle(batch); err != nil {
+			if err := f.fetch(ctx, batch, forward); err != nil {
 				slog.Error("Fetcher: failed to handle batch", "error", err)
 			}
 
@@ -110,7 +96,7 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 				continue
 			}
 
-			if err := handle(batch); err != nil {
+			if err := f.fetch(ctx, batch, forward); err != nil {
 				slog.Error("Fetcher: failed to handle batch", "error", err)
 			}
 
@@ -119,19 +105,39 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 	}
 }
 
-func (f *T) fetch(ctx context.Context, pubkeys []string) ([]nostr.Event, error) {
+// fetch fetches events from the source for the given pubkeys and forwards them using the given forward function.
+func (f *T) fetch(ctx context.Context, pubkeys []string, forward func(*nostr.Event) error) error {
 	if len(pubkeys) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	queryCtx, cancel := context.WithTimeout(ctx, f.config.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, f.config.Timeout)
 	defer cancel()
 
 	filter := nostr.Filter{
 		Kinds:   f.config.Kinds,
 		Authors: pubkeys,
 	}
-	return f.source.Query(queryCtx, filter)
+
+	var errs []error
+	events, err := f.source.Query(ctx, filter)
+	if errors.Is(err, context.Canceled) {
+		// the context was cancelled and the Run is shutting down
+		// no need to forward events or log errors
+		return nil
+	}
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	for i := range events {
+		if err := forward(&events[i]); err != nil {
+			// if one forward fails, there is likely backpressure so we break early
+			errs = append(errs, err)
+			break
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // SourceRelay returns a Source that fetches events from a relay.
