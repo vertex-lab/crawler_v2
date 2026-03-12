@@ -102,6 +102,11 @@ func (p *Pool) Close() {
 	}
 }
 
+// Done returns a channel that is closed when the pool is done.
+func (p *Pool) Done() <-chan struct{} {
+	return p.done
+}
+
 // Relays returns a snapshot of the currently connected and disconnected relay URLs in the pool.
 func (p *Pool) Relays() (connected, disconnected []string) {
 	// don't want to expose a ctx for such a simple operation, so I use a sensible default
