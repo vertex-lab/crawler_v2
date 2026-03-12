@@ -235,7 +235,7 @@ func defaultWSSettings() websocketSettings {
 		dialer: websocket.Dialer{
 			ReadBufferSize:   1024, // 1KB
 			WriteBufferSize:  1024, // 1KB
-			HandshakeTimeout: 10 * time.Second,
+			HandshakeTimeout: 15 * time.Second,
 		},
 		writeWait:      10 * time.Second,
 		maxMessageSize: 500_000,
