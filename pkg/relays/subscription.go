@@ -10,13 +10,6 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-var (
-	ErrDuplicateSub    = errors.New("subscription with the same id already exists")
-	ErrFullSubChannel  = errors.New("subscription channel is full")
-	ErrInvalidSubMatch = errors.New("event does not match the subscription filters")
-	ErrClosedSub       = errors.New("subscription closed by the relay")
-)
-
 type Subscription struct {
 	id      string
 	filters nostr.Filters
@@ -187,7 +180,7 @@ func (r *subRouter) Route(id string, e *nostr.Event) error {
 	}
 
 	if r.verifyMatch && !s.filters.Match(e) {
-		return ErrInvalidSubMatch
+		return fmt.Errorf("%w: filters %v, event %s", ErrInvalidSubMatch, s.filters, e.ID)
 	}
 
 	select {

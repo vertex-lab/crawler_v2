@@ -14,11 +14,6 @@ import (
 	"github.com/pippellia-btc/smallset"
 )
 
-var (
-	ErrPoolClosed = fmt.Errorf("pool is closed")
-	ErrNoRelays   = fmt.Errorf("no relays available")
-)
-
 // Pool manages a set of relay connections and presents a unified API to the caller.
 // It maintains the desired subscription state, handling relay disconnections and subscription closures.
 //

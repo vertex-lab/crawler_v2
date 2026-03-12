@@ -123,11 +123,21 @@ func main() {
 		defer wg.Done()
 		engine.After.PubkeysAdded = fetcher.Enqueue
 		engine.After.WalksUpdated = arbiter.TrackWalks
-		engine.After.RelaysDiscovered = pool.Add
+		engine.After.RelaysDiscovered = AddTo(pool)
 		engine.Ingest(ctx)
 	}()
 
 	wg.Wait()
+}
+
+func AddTo(pool *relays.Pool) func(urls ...string) error {
+	return func(urls ...string) error {
+		if len(urls) > 20 {
+			// this follow-list is too large, so we just ignore it
+			return nil
+		}
+		return pool.Add(urls...)
+	}
 }
 
 func NewFileLogger(path string, level slog.Level) (*slog.Logger, func() error, error) {

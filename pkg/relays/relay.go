@@ -17,16 +17,6 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
 )
 
-var (
-	ErrInvalidURL       = errors.New("invalid relay url")
-	ErrInvalidID        = errors.New("invalid event id")
-	ErrInvalidSignature = errors.New("invalid event signature")
-
-	ErrDisconnected       = errors.New("relay has been disconnected")
-	ErrSendFailed         = errors.New("failed to send message, channel is full")
-	ErrSubscriptionClosed = errors.New("subscription was closed")
-)
-
 // T is a read-only representation of a Nostr relay.
 // Create one with New, interact with Query or Subscribe, then call Close to close it.
 // All methods are safe for concurrent use.
@@ -73,10 +63,14 @@ func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 
 	conn, resp, err := r.settings.WS.dialer.DialContext(ctx, r.url, nil)
 	if err != nil {
-		if resp != nil {
-			return nil, fmt.Errorf("%w; status: %s", err, resp.Status)
+		connErr := &ConnectErr{
+			URL:   r.url,
+			Cause: err,
 		}
-		return nil, err
+		if resp != nil {
+			connErr.StatusCode = resp.StatusCode
+		}
+		return nil, connErr
 	}
 	r.conn = conn
 

@@ -1,14 +1,9 @@
 package relays
 
 import (
-	"errors"
 	"sync/atomic"
 
 	"github.com/nbd-wtf/go-nostr"
-)
-
-var (
-	ErrDuplicateStream = errors.New("stream with the same id already exists")
 )
 
 // Stream represents a stream of events matching a set of filters across a pool of relays.
