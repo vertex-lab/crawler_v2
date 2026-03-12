@@ -22,21 +22,24 @@ func New(c Config, opts ...relays.PoolOption) (*relays.Pool, error) {
 	}
 
 	if c.StatsInterval > 0 {
-		go func() {
-			ticker := time.NewTicker(c.StatsInterval)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					connected, disconnected := pool.Relays()
-					slog.Info("relay pool stats", "connected", len(connected), "disconnected", len(disconnected))
-
-				case <-pool.Done():
-					return
-				}
-			}
-		}()
+		go logStats(pool, c.StatsInterval)
 	}
 	return pool, nil
+}
+
+// logStats logs the relay pool stats every given interval.
+func logStats(pool *relays.Pool, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			connected, disconnected := pool.Relays()
+			slog.Info("relay pool stats", "connected", len(connected), "disconnected", len(disconnected))
+
+		case <-pool.Done():
+			return
+		}
+	}
 }
