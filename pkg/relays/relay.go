@@ -264,14 +264,14 @@ func (r *T) read() {
 		}
 
 		if msgType != ws.TextMessage {
-			r.log.Warn("received binary message", "relay", r.url)
+			r.log.Debug("received binary message", "relay", r.url)
 			continue
 		}
 
 		decoder := json.NewDecoder(reader)
 		label, err := parseLabel(decoder)
 		if err != nil {
-			r.log.Warn("failed to parse label", "relay", r.url, "error", err)
+			r.log.Debug("failed to parse label", "relay", r.url, "error", err)
 			continue
 		}
 
@@ -279,12 +279,12 @@ func (r *T) read() {
 		case "EVENT":
 			msg, err := parseEvent(decoder)
 			if err != nil {
-				r.log.Warn("failed to parse event", "relay", r.url, "error", err)
+				r.log.Debug("failed to parse event", "relay", r.url, "error", err)
 				continue
 			}
 
 			if err := verify(&msg.Event); err != nil {
-				r.log.Warn("failed to verify event", "relay", r.url, "error", err)
+				r.log.Debug("event is invalid", "relay", r.url, "event", msg.Event.ID, "error", err)
 				continue
 			}
 
@@ -300,7 +300,7 @@ func (r *T) read() {
 		case "CLOSED":
 			closed, err := parseClosed(decoder)
 			if err != nil {
-				r.log.Warn("failed to parse closed", "relay", r.url, "error", err)
+				r.log.Debug("failed to parse closed", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalClosed(closed.ID, closed.Message)
@@ -308,7 +308,7 @@ func (r *T) read() {
 		case "EOSE":
 			eose, err := parseEOSE(decoder)
 			if err != nil {
-				r.log.Warn("failed to parse eose", "relay", r.url, "error", err)
+				r.log.Debug("failed to parse eose", "relay", r.url, "error", err)
 				continue
 			}
 			r.subs.SignalEOSE(eose.ID)
@@ -321,7 +321,7 @@ func (r *T) read() {
 
 			auth, err := parseAuth(decoder)
 			if err != nil {
-				r.log.Warn("failed to parse auth", "relay", r.url, "error", err)
+				r.log.Debug("failed to parse auth", "relay", r.url, "error", err)
 				continue
 			}
 
@@ -345,13 +345,13 @@ func (r *T) read() {
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
 			if err != nil {
-				r.log.Warn("failed to parse notice", "relay", r.url, "error", err)
+				r.log.Debug("failed to parse notice", "relay", r.url, "error", err)
 				continue
 			}
 			r.log.Info("received notice message", "relay", r.url, "message", notice.Message)
 
 		default:
-			r.log.Warn("received unknown message", "relay", r.url, "label", label)
+			r.log.Debug("received unknown message", "relay", r.url, "label", label)
 		}
 	}
 }
@@ -376,7 +376,7 @@ func (r *T) write() {
 
 			if err := r.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
-					r.log.Warn("unexpected error when attempting to write", "error", err)
+					r.log.Debug("unexpected error when attempting to write", "error", err)
 				}
 				continue
 			}
