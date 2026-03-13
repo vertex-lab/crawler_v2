@@ -484,7 +484,7 @@ func (p *Pool) run() {
 
 		case <-retry:
 			for url, s := range p.sessions {
-				if s.isActive() {
+				if !s.isDone() {
 					delete(p.retries, url)
 					continue
 				}
@@ -499,10 +499,10 @@ func (p *Pool) run() {
 				if time.Since(s.closedAt) < backoff(p.settings.relayRetry, retries) {
 					continue
 				}
+				p.retries[url]++
 
 				new := p.newSession(url)
 				p.sessions[url] = new
-				p.retries[url]++
 				p.wg.Go(new.run)
 
 				for _, stream := range p.streams {
@@ -567,11 +567,17 @@ func (s *session) close(err error) {
 
 // isActive returns true if the session is active.
 func (s *session) isActive() bool {
+	return !s.isClosing.Load()
+}
+
+// isDone returns true if the session is done.
+// Note that exists a brief time window where s.IsActive() and s.isDone() are both false.
+func (s *session) isDone() bool {
 	select {
 	case <-s.done:
-		return false
-	default:
 		return true
+	default:
+		return false
 	}
 }
 
