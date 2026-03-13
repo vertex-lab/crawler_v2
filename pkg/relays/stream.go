@@ -19,7 +19,8 @@ type Stream struct {
 	err       error // holds the reason for closure
 }
 
-// ID returns the stream's unique identifier.
+// ID returns the stream's unique ID as derived by the pool from the caller-provided base ID.
+// This is the exact REQ ID used by the pool when opening subscriptions on relays.
 func (s *Stream) ID() string {
 	return s.id
 }

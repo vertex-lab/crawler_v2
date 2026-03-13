@@ -28,9 +28,8 @@ var (
 
 // pool errors
 var (
-	ErrPoolClosed      = fmt.Errorf("pool is closed")
-	ErrNoRelays        = fmt.Errorf("no relays available")
-	ErrDuplicateStream = errors.New("stream with the same id already exists")
+	ErrPoolClosed = fmt.Errorf("pool is closed")
+	ErrNoRelays   = fmt.Errorf("no relays available")
 )
 
 // ConnectErr is returned when a websocket connection attempt fails.

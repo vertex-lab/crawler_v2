@@ -11,25 +11,16 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
-	"github.com/pippellia-btc/smallset"
 )
 
 // Pool manages a set of relay connections and presents a unified API to the caller.
 // It maintains the desired subscription state, handling relay disconnections and subscription closures.
 //
-// Callers must always use new and unique IDs for streams, even if old streams were closed.
-// This policy is critical for the relay reconnection logic to work correctly.
+// The IDs passed to Query and Stream are base IDs. The pool derives a unique subscription ID
+// from each base ID when opening subscriptions on relays, appending an internal counter to
+// avoid ID reuse races across queries, streams, and reconnects.
 type Pool struct {
-	// streamIDs holds the IDs of all streams that were ever opened by this pool.
-	// The session reconnection logic needs the guarantee that stream IDs are unique, otherwise we might have:
-	// - session is running
-	// - stream with "ID" is opened
-	// - session stops running
-	// - stream with "ID" is closed
-	// - another stream with the same "ID" is opened
-	streamIDs smallset.Ordered[string]
-	mu        sync.Mutex // only protects streamIDs
-
+	idCounter atomic.Int64
 	streams   map[string]*Stream
 	streamOps chan streamOp
 
@@ -85,12 +76,6 @@ func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	return p, nil
 }
 
-// relayView represents a snapshot of the pool's connected and disconnected relays.
-type relayView struct {
-	connected    []*T     // connected relay types
-	notConnected []string // not connected relay URLs
-}
-
 // Close closes the pool and all the underlying relay connections.
 func (p *Pool) Close() {
 	if p.isClosing.CompareAndSwap(false, true) {
@@ -102,6 +87,11 @@ func (p *Pool) Close() {
 // Done returns a channel that is closed when the pool is done.
 func (p *Pool) Done() <-chan struct{} {
 	return p.done
+}
+
+// uniqueID derives a unique stream/query ID from the given base ID.
+func (p *Pool) uniqueID(baseID string) string {
+	return fmt.Sprintf("%s-%d", baseID, p.idCounter.Add(1))
 }
 
 // Relays returns a snapshot of the currently connected and disconnected relay URLs in the pool.
@@ -121,6 +111,12 @@ func (p *Pool) Relays() (connected, disconnected []string) {
 		connected[i] = r.URL()
 	}
 	return connected, view.notConnected
+}
+
+// relayView represents a snapshot of the pool's connected and disconnected relays.
+type relayView struct {
+	connected    []*T     // connected relay types
+	notConnected []string // not connected relay URLs
 }
 
 // relays returns a snapshot of the currently connected and disconnected relays in the pool.
@@ -251,22 +247,17 @@ type sessionOp struct {
 // The returned events are deduplicated and present only the newest event per replacement category (replaceable / addresable).
 // Errors are joined together using [errors.Join], and events are always returned even if errors occur.
 //
+// The provided baseID is used as a prefix for a unique subscription ID derived by the pool.
+// The derived ID is the wire subscription ID sent to relays.
+//
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
-func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]nostr.Event, error) {
+func (p *Pool) Query(ctx context.Context, baseID string, filters ...nostr.Filter) ([]nostr.Event, error) {
 	if p.isClosing.Load() {
 		return nil, fmt.Errorf("failed to query: %w", ErrPoolClosed)
 	}
 	if len(filters) == 0 {
 		return nil, nil
-	}
-
-	p.mu.Lock()
-	isDuplicate := p.streamIDs.Contains(id)
-	p.mu.Unlock()
-
-	if isDuplicate {
-		return nil, fmt.Errorf("failed to query: %w", ErrDuplicateStream)
 	}
 
 	relays, err := p.waitConnected(ctx)
@@ -279,6 +270,7 @@ func (p *Pool) Query(ctx context.Context, id string, filters ...nostr.Filter) ([
 		err    error
 	}
 
+	id := p.uniqueID(baseID)
 	results := make(chan result, len(relays))
 	wg := sync.WaitGroup{}
 
@@ -341,10 +333,13 @@ func preferCandidate(current, candidate nostr.Event) bool {
 	return candidate.ID < current.ID
 }
 
-// Stream creates a new stream with the given id and filters, returning a Stream object
+// Stream creates a new stream with the given baseID and filters, returning a Stream object
 // that can be used to receive events from all relays as they are received without deduplication.
-// It returns an error if the pool is closed, or if the stream id is duplicated.
-func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
+// It returns an error if the pool is closed.
+//
+// The provided baseID is used as a prefix for a unique subscription ID derived by the pool.
+// The derived ID is used as the stream ID and as the wire subscription ID sent to relays.
+func (p *Pool) Stream(baseID string, filters ...nostr.Filter) (*Stream, error) {
 	if p.isClosing.Load() {
 		return nil, fmt.Errorf("failed to create stream: %w", ErrPoolClosed)
 	}
@@ -352,16 +347,8 @@ func (p *Pool) Stream(id string, filters ...nostr.Filter) (*Stream, error) {
 		return nil, nil
 	}
 
-	p.mu.Lock()
-	if p.streamIDs.Contains(id) {
-		p.mu.Unlock()
-		return nil, fmt.Errorf("failed to create stream: %w", ErrDuplicateStream)
-	}
-	p.streamIDs.Add(id)
-	p.mu.Unlock()
-
 	s := &Stream{
-		id:      id,
+		id:      p.uniqueID(baseID),
 		filters: filters,
 		pool:    p,
 		events:  make(chan *nostr.Event, 10_000),

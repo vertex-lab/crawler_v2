@@ -147,9 +147,13 @@ func (r *T) open(s *Subscription) error {
 	return nil
 }
 
-// Subscribe sends a REQ to the relay with the given id and filters, returning the underlying subscription.
+// Subscribe sends a REQ to the relay with the given ID and filters, returning the underlying subscription.
 // Callers can read messages using the [Subscription.Events] channel.
 // Callers are responsible for calling [Subscription.Close] when done.
+//
+// The provided ID is used as the wire subscription ID sent to the relay. Callers should avoid
+// reusing the same ID for another subscription or query immediately after closing it,
+// as relays may still deliver late messages for the previous subscription.
 func (r *T) Subscribe(id string, filters ...nostr.Filter) (*Subscription, error) {
 	if r.isClosing.Load() {
 		return nil, fmt.Errorf("failed to subscribe: %w", ErrDisconnected)
@@ -173,9 +177,13 @@ func (r *T) Subscribe(id string, filters ...nostr.Filter) (*Subscription, error)
 	return s, nil
 }
 
-// Query sends a REQ to the relay with the given id and filters.
+// Query sends a REQ to the relay with the given ID and filters.
 // When it receives an EOSE, it returns all previous events and closes the subscription.
 // When it receives a CLOSED, it returns the events collected thus far and the closed reason as an error.
+//
+// The provided ID is used as the wire subscription ID sent to the relay. Callers should avoid
+// reusing the same ID for another query or subscription immediately after Query returns,
+// as relays may still deliver late messages for the previous query.
 //
 // It is always recommended to use this method with a context timeout (e.g. 10s),
 // to avoid bad relays that never send an EOSE (or CLOSED) from blocking indefinitely.
