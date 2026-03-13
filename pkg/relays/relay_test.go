@@ -141,6 +141,11 @@ func TestValidateURL(t *testing.T) {
 			url:     "/relay",
 			isValid: false,
 		},
+		{
+			name:    "onion url",
+			url:     "ws://girwot2koy3kvj6fk7oseoqazp5vwbeawocb3m27jcqtah65f2fkl3yd.onion",
+			isValid: false,
+		},
 	}
 
 	for _, test := range tests {

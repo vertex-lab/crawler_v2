@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -412,6 +413,9 @@ func ValidateURL(u string) error {
 	}
 	if parsed.Host == "" || parsed.Host == "." {
 		return fmt.Errorf("%w: missing host", ErrInvalidURL)
+	}
+	if strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".onion") {
+		return fmt.Errorf("%w: onion addresses are not supported", ErrInvalidURL)
 	}
 	if parsed.User != nil {
 		return fmt.Errorf("%w: userinfo is not allowed", ErrInvalidURL)
