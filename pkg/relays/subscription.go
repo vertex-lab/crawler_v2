@@ -44,7 +44,7 @@ func (s *Subscription) Close() {
 		s.relay.subs.Remove(s.id)
 		err := s.relay.send(Close{ID: s.id})
 		if err != nil && !errors.Is(err, ErrDisconnected) {
-			s.relay.log.Warn("failed to send close", "relay", s.relay.url, "error", err)
+			s.relay.log.Error("failed to send close", "relay", s.relay.url, "error", err)
 		}
 		close(s.done)
 	}
@@ -79,6 +79,17 @@ func (s *Subscription) IsLive() bool {
 // IsActive returns true if the subscription is still active (not closing).
 func (s *Subscription) IsActive() bool {
 	return !s.isClosing.Load()
+}
+
+// IsDone returns true if the subscription is done, which appens after the closing process.
+// Note that exists a brief time window where s.IsActive() and s.isDone() are both false.
+func (s *Subscription) IsDone() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // Done returns a channel that is closed when the subscription is done.

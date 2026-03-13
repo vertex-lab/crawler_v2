@@ -58,6 +58,17 @@ func (s *Stream) IsActive() bool {
 	return !s.isClosing.Load()
 }
 
+// IsDone returns true if the stream is done, which appens after the closing process.
+// Note that exists a brief time window where s.IsActive() and s.isDone() are both false.
+func (s *Stream) IsDone() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Close closes the stream, releasing resources.
 func (s *Stream) Close() {
 	if s.isClosing.CompareAndSwap(false, true) {
