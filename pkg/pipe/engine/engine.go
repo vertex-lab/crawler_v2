@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
@@ -23,7 +24,7 @@ var (
 	ErrQueueFull  = errors.New("engine queue is full")
 
 	// IngestKinds are the event kinds the engine accepts in ingest mode.
-	IngestKinds = pipe.ProfileKinds
+	IngestKinds = slices.Concat(pipe.ProfileKinds, []int{nostr.KindTextNote})
 
 	// SyncKinds are the event kinds the engine accepts in sync mode.
 	SyncKinds = []int{nostr.KindFollowList}
@@ -216,6 +217,10 @@ func (e *T) processIngest(event *nostr.Event) error {
 	defer cancel()
 
 	switch event.Kind {
+	case nostr.KindTextNote:
+		secrets := ParseSecrets(event.Content)
+		return e.storeLeakedKeys(secrets, time.Now())
+
 	case nostr.KindFollowList:
 		replaced, err := e.store.Replace(ctx, event)
 		if err != nil {

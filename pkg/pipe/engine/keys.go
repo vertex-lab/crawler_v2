@@ -1,17 +1,49 @@
 package engine
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/pippellia-btc/slicex"
 )
 
+const keyLeakedKeys = "leaked_keys"
+
+// storeLeakedKeys derives the pubkey from each secret key and stores them in Redis in the HASH "leaked_keys".
+func (e *T) storeLeakedKeys(secKeys []string, detectedAt time.Time) error {
+	if len(secKeys) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	pipe := e.graph.Client.Pipeline()
+	for _, sk := range secKeys {
+		pk, err := nostr.GetPublicKey(sk)
+		if err != nil {
+			continue
+		}
+		pipe.HSetNX(ctx, keyLeakedKeys, pk, keyTime(sk, detectedAt))
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("failed to store leaked keys: %w", err)
+	}
+	return nil
+}
+
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
 
-// ParseNsecs returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
-func ParseNsecs(message string) []string {
+// ParseSecrets returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
+func ParseSecrets(message string) []string {
 	if len(message) < 63 {
 		return nil
 	}
@@ -30,4 +62,23 @@ func ParseNsecs(message string) []string {
 		keys = append(keys, sk.(string))
 	}
 	return slicex.Unique(keys)
+}
+
+// keyTime returns a colon-separated secret key and unix timestamp.
+func keyTime(sk string, t time.Time) string {
+	return sk + ":" + strconv.FormatInt(t.Unix(), 10)
+}
+
+// parseKeyTime parses a colon-separated secret key and unix timestamp into a secret key and time.Time.
+func parseKeyTime(s string) (string, time.Time, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return "", time.Time{}, errors.New("invalid key time format")
+	}
+	sk := parts[0]
+	unix, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return sk, time.Unix(unix, 0), nil
 }

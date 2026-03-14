@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestParseNsecs(t *testing.T) {
+func TestParseSecrets(t *testing.T) {
 	key1 := "14bf2f082a2b6f62a9229972b5cd76ea0ae693a6e711bdee7e42d99f1be05f02"
 	nsec1 := "nsec1zjlj7zp29dhk92fzn9ettntkag9wdyaxuugmmmn7gtve7xlqtupqwtyx8z"
 	key2 := "d880730420eabec21785a12ae141246e3f39691a6867baec8c4d6a48aaa70881"
@@ -285,7 +285,7 @@ func TestParseNsecs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := ParseNsecs(test.message)
+			got := ParseSecrets(test.message)
 			if !reflect.DeepEqual(got, test.keys) {
 				t.Fatalf("expected %v, got %v", test.keys, got)
 			}
