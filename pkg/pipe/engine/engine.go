@@ -23,7 +23,7 @@ var (
 	ErrQueueFull  = errors.New("engine queue is full")
 
 	// IngestKinds are the event kinds the engine accepts in ingest mode.
-	IngestKinds = slices.Concat(pipe.ProfileKinds, []int{nostr.KindTextNote})
+	IngestKinds = pipe.ProfileKinds
 
 	// SyncKinds are the event kinds the engine accepts in sync mode.
 	SyncKinds = []int{nostr.KindFollowList}
