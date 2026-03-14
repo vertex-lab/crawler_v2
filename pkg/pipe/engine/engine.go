@@ -5,13 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
-	"strings"
-	"sync/atomic"
+	"sync"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
@@ -22,8 +19,14 @@ import (
 )
 
 var (
-	ErrIsClosing = errors.New("engine is closing")
-	ErrQueueFull = errors.New("engine queue is full")
+	ErrNotRunning = errors.New("engine is not running")
+	ErrQueueFull  = errors.New("engine queue is full")
+
+	// IngestKinds are the event kinds the engine accepts in ingest mode.
+	IngestKinds = slices.Concat(pipe.ProfileKinds, []int{nostr.KindTextNote})
+
+	// SyncKinds are the event kinds the engine accepts in sync mode.
+	SyncKinds = []int{nostr.KindFollowList}
 )
 
 // T is the unified engine that consumes events from an internal queue and
@@ -31,16 +34,26 @@ var (
 // to observe and react to events after they are processed.
 // Such configuration must happen before the engine is started with Ingest or Sync.
 type T struct {
-	store *sqlite.Store
-	graph regraph.DB
-	cache *walks.CachedWalker
+	store  *sqlite.Store
+	graph  regraph.DB
+	cache  *walks.CachedWalker
+	events chan *nostr.Event
 
 	After  AfterHooks // user configurable hooks
 	config Config
 
-	isClosing atomic.Bool
-	events    chan *nostr.Event
+	mu   sync.RWMutex
+	mode engineMode
 }
+
+// either not running, ingest or sync mode.
+type engineMode uint8
+
+const (
+	modeNotRunning engineMode = 0
+	modeIngest     engineMode = 1
+	modeSync       engineMode = 2
+)
 
 // AfterHooks groups optional callbacks invoked by the engine after specific
 // processing steps complete successfully.
@@ -66,6 +79,7 @@ type AfterHooks struct {
 func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 	return &T{
 		config: c,
+		mode:   modeNotRunning,
 		store:  store,
 		graph:  graph,
 		events: make(chan *nostr.Event, c.Queue),
@@ -76,14 +90,50 @@ func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 	}
 }
 
-// Enqueue adds an event to the engine queue.
+// AcceptedKinds returns the event kinds the engine accepts in the current mode.
+func (e *T) AcceptedKinds() []int {
+	e.mu.RLock()
+	mode := e.mode
+	e.mu.RUnlock()
+
+	switch mode {
+	case modeNotRunning:
+		return nil
+	case modeIngest:
+		return IngestKinds
+	case modeSync:
+		return SyncKinds
+	default:
+		panic("engine in unknown mode")
+	}
+}
+
+// Enqueue adds an event to the engine queue if it's accepted by the current mode.
 // It is non-blocking and returns ErrQueueFull when the queue is saturated.
 func (e *T) Enqueue(event *nostr.Event) error {
 	if event == nil {
 		return errors.New("event is nil")
 	}
-	if e.isClosing.Load() {
-		return ErrIsClosing
+
+	e.mu.RLock()
+	mode := e.mode
+	e.mu.RUnlock()
+
+	var acceptedKinds []int
+	switch mode {
+	case modeNotRunning:
+		return ErrNotRunning
+	case modeIngest:
+		acceptedKinds = IngestKinds
+	case modeSync:
+		acceptedKinds = SyncKinds
+	default:
+		panic("engine in unknown mode")
+	}
+
+	if !slices.Contains(acceptedKinds, event.Kind) {
+		// event kind is not accepted, just skip it
+		return nil
 	}
 
 	select {
@@ -94,17 +144,29 @@ func (e *T) Enqueue(event *nostr.Event) error {
 	}
 }
 
-// Ingest starts the engine in live ingestion mode.
+// Ingest starts the engine in live ingestion mode. It's a blocking operation.
 // Queued events are first archived according to their storage semantics, and are
 // subsequently used to update the derived state (e.g. follow-list graph in redis).
 func (e *T) Ingest(ctx context.Context) {
+	e.mu.Lock()
+	if e.mode != modeNotRunning {
+		panic("engine.Ingest called while the engine is already running")
+	}
+	e.mode = modeIngest
+	e.mu.Unlock()
 	e.run(ctx, e.processIngest)
 }
 
-// Sync starts the engine in sync mode.
+// Sync starts the engine in sync mode. It's a blocking operation.
 // Queued events are not archived, as they are assumed to already come from the storage layer, but
 // are only used to recreate the derived state (e.g. follow-list graph in redis).
 func (e *T) Sync(ctx context.Context) {
+	e.mu.Lock()
+	if e.mode != modeNotRunning {
+		panic("engine.Sync called while the engine is already running")
+	}
+	e.mode = modeSync
+	e.mu.Unlock()
 	e.run(ctx, e.processSync)
 }
 
@@ -115,9 +177,6 @@ func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 
 	processed := 0
 	handle := func(event *nostr.Event) {
-		if event == nil || !slices.Contains(e.config.Kinds, event.Kind) {
-			return
-		}
 		if err := process(event); err != nil {
 			logErrEvent(err, event)
 			return
@@ -131,8 +190,11 @@ func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 	for {
 		select {
 		case <-ctx.Done():
-			// process buffered items
-			e.isClosing.Store(true)
+			// signal shutdown and process buffered items
+			e.mu.Lock()
+			e.mode = modeNotRunning
+			e.mu.Unlock()
+
 			for {
 				select {
 				case event := <-e.events:
@@ -200,9 +262,6 @@ func (e *T) processSync(event *nostr.Event) error {
 // - regular kinds: Save
 // - replaceable/addressable kinds: Replace
 func (e *T) archive(ctx context.Context, event *nostr.Event) error {
-	ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
-	defer cancel()
-
 	switch {
 	case nostr.IsRegularKind(event.Kind):
 		_, err := e.store.Save(ctx, event)
@@ -371,30 +430,6 @@ func ParseRelays(e *nostr.Event) []string {
 		urls = append(urls, url)
 	}
 	return slicex.Unique(urls)
-}
-
-var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
-
-// ParseNsecs returns all valid secret keys encoded in the message as nip19 "nsec" values.
-func ParseNsecs(message string) []string {
-	if len(message) < 63 {
-		return nil
-	}
-
-	candidates := nsecRegex.FindAllString(message, -1)
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	keys := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		prefix, sk, err := nip19.Decode(strings.ToLower(candidate))
-		if err != nil || prefix != "nsec" {
-			continue
-		}
-		keys = append(keys, sk.(string))
-	}
-	return slicex.Unique(keys)
 }
 
 // logErrEvent logs an error event if the error is not context.Canceled.

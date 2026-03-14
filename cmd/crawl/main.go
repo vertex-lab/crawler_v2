@@ -133,7 +133,7 @@ func main() {
 func AddTo(pool *relays.Pool) func(urls ...string) error {
 	return func(urls ...string) error {
 		if len(urls) > 20 {
-			// this follow-list is too large, so we just ignore it
+			// this relay-list is too large, so we just ignore it
 			return nil
 		}
 		return pool.Add(urls...)

@@ -4,15 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 )
 
 type Config struct {
-	// Kinds is the list of event kinds to be processed.
-	// If an event has a kind that is not in this list, it will be simple skipped.
-	Kinds []int `env:"ENGINE_KINDS"`
-
 	// Queue is the capacity of the internal engine events queue.
 	Queue int `env:"ENGINE_QUEUE"`
 
@@ -28,7 +22,6 @@ type Config struct {
 
 func NewConfig() Config {
 	return Config{
-		Kinds:         pipe.ProfileKinds,
 		Queue:         10_000,
 		CacheCapacity: 100_000,
 		PrintEvery:    10_000,
