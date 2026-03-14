@@ -181,15 +181,13 @@ func (p *Pool) Add(urls ...string) error {
 		return nil
 	}
 
-	urls = slicex.Unique(urls)
 	var errs []error
+	urls, err := NormalizeURLs(urls...)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	for i, url := range urls {
-		if err := ValidateURL(url); err != nil {
-			errs = append(errs, fmt.Errorf("failed to add relay %q: %w", url, err))
-			continue
-		}
-
 		select {
 		case <-p.done:
 			errs = append(errs, fmt.Errorf("failed to add %d relays: %w", len(urls)-i, ErrPoolClosed))
@@ -213,15 +211,13 @@ func (p *Pool) Remove(urls ...string) error {
 		return nil
 	}
 
-	urls = slicex.Unique(urls)
 	var errs []error
+	urls, err := NormalizeURLs(urls...)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	for i, url := range urls {
-		if err := ValidateURL(url); err != nil {
-			errs = append(errs, fmt.Errorf("failed to remove relay %q: %w", url, err))
-			continue
-		}
-
 		select {
 		case <-p.done:
 			errs = append(errs, fmt.Errorf("failed to remove %d relays: %w", len(urls)-i, ErrPoolClosed))

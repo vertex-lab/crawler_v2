@@ -160,3 +160,86 @@ func TestValidateURL(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		result  string
+		isValid bool
+	}{
+		// Basic valid cases
+		{name: "clean wss", input: "wss://relay.example.com", result: "wss://relay.example.com", isValid: true},
+		{name: "clean ws upgraded to wss", input: "ws://relay.example.com", result: "wss://relay.example.com", isValid: true},
+
+		// Trailing slashes
+		{name: "trailing slash removed", input: "wss://relay.example.com/", result: "wss://relay.example.com", isValid: true},
+		{name: "multiple trailing slashes removed", input: "wss://relay.example.com///", result: "wss://relay.example.com", isValid: true},
+		{name: "path with trailing slash", input: "wss://relay.example.com/nostr/", result: "wss://relay.example.com/nostr", isValid: true},
+		{name: "path without trailing slash preserved", input: "wss://relay.example.com/nostr", result: "wss://relay.example.com/nostr", isValid: true},
+
+		// Casing
+		{name: "uppercase scheme lowercased", input: "WSS://relay.example.com", result: "wss://relay.example.com", isValid: true},
+		{name: "mixed case scheme lowercased", input: "Wss://relay.example.com", result: "wss://relay.example.com", isValid: true},
+		{name: "uppercase host lowercased", input: "wss://RELAY.EXAMPLE.COM", result: "wss://relay.example.com", isValid: true},
+		{name: "mixed case host lowercased", input: "wss://Relay.Example.Com", result: "wss://relay.example.com", isValid: true},
+		{name: "uppercase ws upgraded and lowercased", input: "WS://relay.example.com", result: "wss://relay.example.com", isValid: true},
+
+		// Ports
+		{name: "explicit port preserved", input: "wss://relay.example.com:443", result: "wss://relay.example.com:443", isValid: true},
+		{name: "non-standard port preserved", input: "wss://relay.example.com:8080", result: "wss://relay.example.com:8080", isValid: true},
+
+		// IP addresses
+		{name: "ipv4 address", input: "wss://192.168.1.1", result: "wss://192.168.1.1", isValid: true},
+		{name: "ipv4 with port", input: "wss://192.168.1.1:8080", result: "wss://192.168.1.1:8080", isValid: true},
+		{name: "ipv6 address", input: "wss://[::1]", result: "wss://[::1]", isValid: true},
+		{name: "ipv6 with port", input: "wss://[::1]:8080", result: "wss://[::1]:8080", isValid: true},
+
+		// Invalid: empty
+		{name: "empty string", input: ""},
+
+		// Invalid: wrong scheme
+		{name: "http scheme", input: "http://relay.example.com"},
+		{name: "https scheme", input: "https://relay.example.com"},
+		{name: "no scheme", input: "relay.example.com"},
+		{name: "ftp scheme", input: "ftp://relay.example.com"},
+
+		// Invalid: missing host
+		{name: "missing host", input: "wss://"},
+		{name: "slash only path no host", input: "wss:///path"},
+
+		// Invalid: onion
+		{name: "onion address", input: "wss://abcdefg.onion"},
+		{name: "onion address uppercase", input: "wss://abcdefg.ONION"},
+
+		// Invalid: userinfo
+		{name: "userinfo not allowed", input: "wss://user:pass@relay.example.com"},
+		{name: "user only not allowed", input: "wss://user@relay.example.com"},
+
+		// Invalid: query string
+		{name: "query string not allowed", input: "wss://relay.example.com?foo=bar"},
+
+		// Invalid: fragment
+		{name: "fragment not allowed", input: "wss://relay.example.com#section"},
+
+		// Combos a user might realistically type
+		{name: "ws with trailing slash", input: "ws://relay.example.com/", result: "wss://relay.example.com", isValid: true},
+		{name: "uppercase host with trailing slash", input: "wss://RELAY.EXAMPLE.COM/", result: "wss://relay.example.com", isValid: true},
+		{name: "ws uppercase host trailing slash", input: "WS://RELAY.EXAMPLE.COM/", result: "wss://relay.example.com", isValid: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := NormalizeURL(test.input)
+			if test.isValid && err != nil {
+				t.Fatalf("NormalizeURL(%q) error = %v, isValid %v", test.input, err, test.isValid)
+			}
+			if !test.isValid && err == nil {
+				t.Fatalf("NormalizeURL(%q) error = nil, isValid %v", test.input, test.isValid)
+			}
+			if got != test.result {
+				t.Errorf("NormalizeURL(%q) = %q, want %q", test.input, got, test.result)
+			}
+		})
+	}
+}

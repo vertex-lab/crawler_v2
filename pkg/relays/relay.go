@@ -15,6 +15,7 @@ import (
 	"github.com/goccy/go-json"
 	ws "github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/relays/auth"
 )
 
@@ -398,32 +399,85 @@ func Compare(r1, r2 *T) int {
 	return cmp.Compare(r1.url, r2.url)
 }
 
-// ValidateURL validates a Relay URL.
-func ValidateURL(u string) error {
+// NormalizeURLs normalizes and deduplicates a list of relay URLs using [NormalizeURL].
+// Invalid URLs are skipped and their errors collected into the returned error.
+func NormalizeURLs(urls ...string) ([]string, error) {
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	var errs []error
+	normalized := make([]string, 0, len(urls))
+
+	for _, u := range urls {
+		n, err := NormalizeURL(u)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		normalized = append(normalized, n)
+	}
+	return slicex.Unique(normalized), errors.Join(errs...)
+}
+
+// NormalizeURL normalizes and validates a relay URL, returning the canonical form.
+// The scheme "ws" is upgraded to "wss".
+func NormalizeURL(u string) (string, error) {
 	if u == "" {
-		return fmt.Errorf("%w: empty url", ErrInvalidURL)
+		return "", fmt.Errorf("%w: empty url", ErrInvalidURL)
 	}
 
 	parsed, err := url.Parse(u)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("%w: %w", ErrInvalidURL, err)
 	}
-	if parsed.Scheme != "wss" && parsed.Scheme != "ws" {
-		return fmt.Errorf("%w: invalid scheme: %s", ErrInvalidURL, parsed.Scheme)
+
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Scheme == "ws" {
+		parsed.Scheme = "wss"
 	}
-	if parsed.Host == "" || parsed.Host == "." {
+
+	if err := validateURL(parsed); err != nil {
+		return "", err
+	}
+	return parsed.String(), nil
+}
+
+// ValidateURL validates a Relay URL, returning an error if the URL is invalid.
+func ValidateURL(u string) error {
+	if u == "" {
+		return fmt.Errorf("%w: empty url", ErrInvalidURL)
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidURL, err)
+	}
+	return validateURL(parsed)
+}
+
+// validateURL validates a parsed Relay URL, returning an error if the URL is invalid.
+func validateURL(u *url.URL) error {
+	if u == nil {
+		return fmt.Errorf("%w: nil url", ErrInvalidURL)
+	}
+	if u.Scheme != "wss" && u.Scheme != "ws" {
+		return fmt.Errorf("%w: invalid scheme: %s", ErrInvalidURL, u.Scheme)
+	}
+	if u.Host == "" || u.Host == "." {
 		return fmt.Errorf("%w: missing host", ErrInvalidURL)
 	}
-	if strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".onion") {
+	if strings.HasSuffix(strings.ToLower(u.Hostname()), ".onion") {
 		return fmt.Errorf("%w: onion addresses are not supported", ErrInvalidURL)
 	}
-	if parsed.User != nil {
+	if u.User != nil {
 		return fmt.Errorf("%w: userinfo is not allowed", ErrInvalidURL)
 	}
-	if parsed.RawQuery != "" {
+	if u.RawQuery != "" {
 		return fmt.Errorf("%w: query string is not allowed", ErrInvalidURL)
 	}
-	if parsed.Fragment != "" {
+	if u.Fragment != "" {
 		return fmt.Errorf("%w: fragment is not allowed", ErrInvalidURL)
 	}
 	return nil
