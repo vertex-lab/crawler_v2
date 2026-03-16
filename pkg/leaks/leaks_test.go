@@ -1,9 +1,45 @@
 package leaks
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 )
+
+func TestStoreRead(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6380"})
+	t.Cleanup(func() { client.Close() })
+
+	db := NewDB(client)
+
+	sk := "14bf2f082a2b6f62a9229972b5cd76ea0ae693a6e711bdee7e42d99f1be05f02"
+	detectedAt := time.Unix(time.Now().Unix(), 0) // truncate to seconds
+
+	addedPks, err := db.Store(ctx, []string{sk}, detectedAt)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if len(addedPks) != 1 {
+		t.Fatalf("expected 1 added pubkey, got %d", len(addedPks))
+	}
+	pk := addedPks[0]
+	t.Cleanup(func() { client.HDel(ctx, keyLeakedKeys, pk) })
+
+	gotSK, gotTime, err := db.Read(ctx, pk)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if gotSK != sk {
+		t.Errorf("secret key: want %q, got %q", sk, gotSK)
+	}
+	if !gotTime.Equal(detectedAt) {
+		t.Errorf("time: want %v, got %v", detectedAt, gotTime)
+	}
+}
 
 func TestParseNsecs(t *testing.T) {
 	key1 := "14bf2f082a2b6f62a9229972b5cd76ea0ae693a6e711bdee7e42d99f1be05f02"

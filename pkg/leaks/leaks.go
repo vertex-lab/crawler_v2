@@ -18,6 +18,9 @@ import (
 
 const keyLeakedKeys = "leaked_keys"
 
+// ErrNotFound is returned when no leak record exists for the given pubkey.
+var ErrNotFound = errors.New("leak not found")
+
 // keyTime returns a colon-separated secret key and unix timestamp.
 func keyTime(sk string, t time.Time) string {
 	return sk + ":" + strconv.FormatInt(t.Unix(), 10)
@@ -78,6 +81,24 @@ func (db *DB) Store(ctx context.Context, secKeys []string, detectedAt time.Time)
 		}
 	}
 	return addedPks, nil
+}
+
+// Read returns the secret key and detection time for the given pubkey.
+// If no record is found, it returns ErrNotFound.
+func (db *DB) Read(ctx context.Context, pubkey string) (string, time.Time, error) {
+	val, err := db.client.HGet(ctx, keyLeakedKeys, pubkey).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", time.Time{}, ErrNotFound
+	}
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("failed to read leaked key: %w", err)
+	}
+
+	sk, t, err := parseKeyTime(val)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("failed to parse leaked key: %w", err)
+	}
+	return sk, t, nil
 }
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
