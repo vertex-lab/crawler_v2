@@ -6,13 +6,15 @@ This repo is a rewrite of the original and discontinued [crawler](https://github
 
 The goals of this project are:
 
-- Continuously crawl the Nostr network (24/7/365), searching for follow lists (`kind:3`) and other relevant events.
+- Continuously crawl the Nostr network (24/7/365), searching for `kind:3` follow-lists  and other relevant events among a wide array of relays.
 
-- Quickly assess whether new events should be added to the database based on the author's rank. Approved events are used to build a custom Redis-backed graph database.
+- Relays are seeded from a list and then discovered dynamically using `kind:10002` relay-lists. Subscription closures and relay disconnections are handled gracefully with retries and backoff.
+
+- Efficiently assess whether new events should be added to the database based on the author's rank. Approved events are used to build a custom Redis-backed graph database.
 
 - Generate and maintain random walks for nodes in the graph, updating them as the graph topology evolves.
 
-- Use these random walks to efficiently compute acyclic Monte Carlo Pagerank (personalized and global). Algorithms are inspired by the paper [Fast Incremental and Personalized PageRank](snap.stanford.edu/class/cs224w-readings/bahmani10pagerank.pdf).
+- Use these random walks to efficiently compute acyclic Monte Carlo Pagerank (personalized and global). Algorithms are inspired by the paper [Fast Incremental and Personalized PageRank](https://snap.stanford.edu/class/cs224w-readings/bahmani10pagerank.pdf).
 
 ## Apps
 
