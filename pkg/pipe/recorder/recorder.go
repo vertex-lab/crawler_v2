@@ -1,3 +1,4 @@
+// Package recorder provides a background goroutine that records events and creates statistics.
 package recorder
 
 import (

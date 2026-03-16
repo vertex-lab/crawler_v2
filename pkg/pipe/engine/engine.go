@@ -1,3 +1,7 @@
+// Package engine provides a unified event processing engine that consumes events
+// from an internal queue and dispatches logic by event kind. Engine can be
+// configured with [AfterHooks] to observe and react to events after they are
+// processed.
 package engine
 
 import (

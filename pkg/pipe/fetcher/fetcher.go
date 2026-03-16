@@ -1,3 +1,5 @@
+// Package fetcher provides a background goroutine that fetches nostr events from a
+// source (relay, pool, or database) for a set of pubkeys.
 package fetcher
 
 import (

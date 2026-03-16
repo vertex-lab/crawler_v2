@@ -1,3 +1,5 @@
+// Package arbiter provides a background service that periodically scans the graph
+// for nodes to promote or demote based on their pagerank.
 package arbiter
 
 import (

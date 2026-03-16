@@ -1,3 +1,4 @@
+// Package pool is a wrapper around [relays.Pool], adding to it a config and stats logging.
 package pool
 
 import (

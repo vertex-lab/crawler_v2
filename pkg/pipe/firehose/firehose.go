@@ -1,3 +1,5 @@
+// Package firehose provides a background goroutine that reads the stream of events
+// from a [relays.Pool] and forwards them to a caller-provided function.
 package firehose
 
 import (
