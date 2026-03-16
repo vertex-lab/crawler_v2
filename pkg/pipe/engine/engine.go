@@ -47,15 +47,6 @@ type T struct {
 	mode engineMode
 }
 
-// either not running, ingest or sync mode.
-type engineMode uint8
-
-const (
-	modeNotRunning engineMode = 0
-	modeIngest     engineMode = 1
-	modeSync       engineMode = 2
-)
-
 // AfterHooks groups optional callbacks invoked by the engine after specific
 // processing steps complete successfully.
 //
@@ -75,12 +66,21 @@ type AfterHooks struct {
 	WalksUpdated func(old, new []walks.Walk) error
 }
 
+type engineMode struct {
+	name    string
+	kinds   []int // accepted event kinds
+	process func(*nostr.Event) error
+}
+
+func (m engineMode) IsSet() bool {
+	return m.name != ""
+}
+
 // New creates a new Engine instance.
 // Config is assumed to be validated by the caller.
 func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 	return &T{
 		config: c,
-		mode:   modeNotRunning,
 		store:  store,
 		graph:  graph,
 		events: make(chan *nostr.Event, c.Queue),
@@ -94,19 +94,15 @@ func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 // AcceptedKinds returns the event kinds the engine accepts in the current mode.
 func (e *T) AcceptedKinds() []int {
 	e.mu.RLock()
-	mode := e.mode
-	e.mu.RUnlock()
+	defer e.mu.RUnlock()
 
-	switch mode {
-	case modeNotRunning:
+	if !e.mode.IsSet() {
 		return nil
-	case modeIngest:
-		return IngestKinds
-	case modeSync:
-		return SyncKinds
-	default:
-		panic("engine in unknown mode")
 	}
+
+	c := make([]int, len(e.mode.kinds))
+	copy(c, e.mode.kinds)
+	return c
 }
 
 // Enqueue adds an event to the engine queue if it's accepted by the current mode.
@@ -120,20 +116,10 @@ func (e *T) Enqueue(event *nostr.Event) error {
 	mode := e.mode
 	e.mu.RUnlock()
 
-	var acceptedKinds []int
-	switch mode {
-	case modeNotRunning:
-		return ErrNotRunning
-	case modeIngest:
-		acceptedKinds = IngestKinds
-	case modeSync:
-		acceptedKinds = SyncKinds
-	default:
-		panic("engine in unknown mode")
+	if !mode.IsSet() {
+		return errors.New("engine is not running")
 	}
-
-	if !slices.Contains(acceptedKinds, event.Kind) {
-		// event kind is not accepted, just skip it
+	if !slices.Contains(mode.kinds, event.Kind) {
 		return nil
 	}
 
@@ -150,12 +136,18 @@ func (e *T) Enqueue(event *nostr.Event) error {
 // subsequently used to update the derived state (e.g. follow-list graph in redis).
 func (e *T) Ingest(ctx context.Context) {
 	e.mu.Lock()
-	if e.mode != modeNotRunning {
+	if e.mode.IsSet() {
 		panic("engine.Ingest called while the engine is already running")
 	}
-	e.mode = modeIngest
+
+	e.mode = engineMode{
+		name:    "ingest",
+		kinds:   IngestKinds,
+		process: e.processIngest,
+	}
+
 	e.mu.Unlock()
-	e.run(ctx, e.processIngest)
+	e.run(ctx)
 }
 
 // Sync starts the engine in sync mode. It's a blocking operation.
@@ -163,22 +155,30 @@ func (e *T) Ingest(ctx context.Context) {
 // are only used to recreate the derived state (e.g. follow-list graph in redis).
 func (e *T) Sync(ctx context.Context) {
 	e.mu.Lock()
-	if e.mode != modeNotRunning {
+	if e.mode.IsSet() {
 		panic("engine.Sync called while the engine is already running")
 	}
-	e.mode = modeSync
+
+	e.mode = engineMode{
+		name:    "sync",
+		kinds:   SyncKinds,
+		process: e.processSync,
+	}
+
 	e.mu.Unlock()
-	e.run(ctx, e.processSync)
+	e.run(ctx)
 }
 
 // run starts the engine loop, processing events with the given process function.
-func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
+func (e *T) run(ctx context.Context) {
 	slog.Info("Engine: ready")
 	defer slog.Info("Engine: shut down")
 
+	mode := e.mode
 	processed := 0
+
 	handle := func(event *nostr.Event) {
-		if err := process(event); err != nil {
+		if err := mode.process(event); err != nil {
 			logErrEvent(err, event)
 			return
 		}
@@ -193,7 +193,7 @@ func (e *T) run(ctx context.Context, process func(*nostr.Event) error) {
 		case <-ctx.Done():
 			// signal shutdown and process buffered items
 			e.mu.Lock()
-			e.mode = modeNotRunning
+			e.mode = engineMode{}
 			e.mu.Unlock()
 
 			for {
