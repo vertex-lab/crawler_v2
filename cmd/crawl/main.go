@@ -75,7 +75,7 @@ func main() {
 	firehose := firehose.New(config.Firehose, pool, firehose.ExistPolicy(graph, config.Firehose.CacheSize))
 	fetcher := fetcher.New(config.Fetcher, fetcher.SourcePool(pool))
 	engine := engine.New(config.Engine, store, graph)
-	recorder := recorder.New(config.Recorder, graph)
+	recorder := recorder.New(config.Recorder, graph.Client)
 	arbiter := arbiter.New(config.Arbiter, graph)
 
 	nodes, err := graph.NodeCount(ctx)
