@@ -39,7 +39,8 @@ func main() {
 	}
 	config.Fetcher.Kinds = []int{nostr.KindFollowList} // no need to sync other event kinds
 
-	graph, err := regraph.New(&redis.Options{Addr: config.RedisAddress})
+	redis := redis.NewClient(&redis.Options{Addr: config.RedisAddress})
+	graph, err := regraph.New(redis)
 	if err != nil {
 		panic(err)
 	}

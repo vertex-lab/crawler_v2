@@ -25,7 +25,9 @@ func TestWalks(t *testing.T) {
 	fmt.Println("Testing the walks consistency")
 	fmt.Printf("-----------------------------\n\n")
 
-	db, err := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	db, err := regraph.New(
+		redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+	)
 	if err != nil {
 		t.Fatalf("setup failed %v", err)
 	}
@@ -83,7 +85,9 @@ func TestPagerank(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the pagerank distribution")
 
-	db, err := regraph.New(&redis.Options{Addr: "localhost:6379"})
+	db, err := regraph.New(
+		redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+	)
 	if err != nil {
 		t.Fatalf("setup failed %v", err)
 	}

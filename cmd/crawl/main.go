@@ -43,7 +43,8 @@ func main() {
 		panic(err)
 	}
 
-	graph, err := regraph.New(&redis.Options{Addr: config.RedisAddress})
+	redis := redis.NewClient(&redis.Options{Addr: config.RedisAddress})
+	graph, err := regraph.New(redis)
 	if err != nil {
 		panic(err)
 	}
@@ -75,7 +76,7 @@ func main() {
 	firehose := firehose.New(config.Firehose, pool, firehose.ExistPolicy(graph, config.Firehose.CacheSize))
 	fetcher := fetcher.New(config.Fetcher, fetcher.SourcePool(pool))
 	engine := engine.New(config.Engine, store, graph)
-	recorder := recorder.New(config.Recorder, graph.Client)
+	recorder := recorder.New(config.Recorder, redis)
 	arbiter := arbiter.New(config.Arbiter, graph)
 
 	nodes, err := graph.NodeCount(ctx)

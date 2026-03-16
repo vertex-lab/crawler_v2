@@ -39,8 +39,8 @@ type DB struct {
 	Client *redis.Client
 }
 
-func New(opt *redis.Options) (DB, error) {
-	db := DB{Client: redis.NewClient(opt)}
+func New(c *redis.Client) (DB, error) {
+	db := DB{Client: c}
 	if err := db.init(); err != nil {
 		return DB{}, err
 	}
