@@ -36,7 +36,7 @@ func TestParseNode(t *testing.T) {
 			fields: map[string]string{
 				NodeID:     "19",
 				NodePubkey: "nineteen",
-				NodeStatus: graph.StatusActive,
+				NodeStatus: string(graph.StatusActive),
 			},
 			expected: &graph.Node{
 				ID:     "19",
@@ -49,7 +49,7 @@ func TestParseNode(t *testing.T) {
 			fields: map[string]string{
 				NodeID:      "19",
 				NodePubkey:  "nineteen",
-				NodeStatus:  graph.StatusActive,
+				NodeStatus:  string(graph.StatusActive),
 				NodeAddedTS: "1",
 			},
 			expected: &graph.Node{

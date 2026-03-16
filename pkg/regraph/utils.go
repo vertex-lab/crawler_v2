@@ -67,7 +67,7 @@ func toStrings[ID graph.ID | walks.ID](ids []ID) []string {
 	return s
 }
 
-// parseNode() parses the map into a node structure
+// parseNode parses the map into a node structure
 func parseNode(fields map[string]string) (*graph.Node, error) {
 	if len(fields) == 0 {
 		return nil, nil
@@ -83,7 +83,7 @@ func parseNode(fields map[string]string) (*graph.Node, error) {
 			node.Pubkey = val
 
 		case NodeStatus:
-			node.Status = val
+			node.Status = graph.Status(val)
 
 		case NodeAddedTS:
 			ts, err := parseTimestamp(val)

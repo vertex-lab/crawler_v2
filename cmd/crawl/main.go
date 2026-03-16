@@ -122,8 +122,9 @@ func main() {
 	go func() {
 		defer wg.Done()
 		engine.After.PubkeysAdded = fetcher.Enqueue
-		engine.After.WalksUpdated = arbiter.TrackWalks
 		engine.After.RelaysDiscovered = AddTo(pool)
+		engine.After.KeysLeaked = arbiter.NotifyLeaks
+		engine.After.WalksUpdated = arbiter.TrackWalks
 		engine.Ingest(ctx)
 	}()
 

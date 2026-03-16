@@ -9,12 +9,26 @@ import (
 	"github.com/pippellia-btc/slicex"
 )
 
-const (
-	// types of status
-	StatusActive   string = "active" // meaning, we generate random walks for this node
-	StatusInactive string = "inactive"
+// Status represents the status of a node.
+type Status string
 
-	// internal record kinds
+func (s Status) MarshalBinary() ([]byte, error) { return []byte(s), nil }
+
+const (
+	// StatusActive indicates trust in this node.
+	// Active nodes can add new nodes to the graph and are those for which we generate random walks.
+	StatusActive Status = "active"
+
+	// StatusInactive indicates non-trust in this node.
+	StatusInactive Status = "inactive"
+
+	// StatusLeaked indicates that the secret key of this node was leaked.
+	// Treat as a permanently inactive node.
+	StatusLeaked Status = "leaked"
+)
+
+// Internal record kinds
+const (
 	Addition  int = -3
 	Promotion int = -2
 	Demotion  int = -1
@@ -33,7 +47,7 @@ func (id ID) MarshalBinary() ([]byte, error) { return []byte(id), nil }
 type Node struct {
 	ID      ID
 	Pubkey  string
-	Status  string // either [StatusActive] or [StatusInactive]
+	Status  Status
 	Records []Record
 }
 

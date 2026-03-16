@@ -29,9 +29,10 @@ const (
 	NodeID          = "id"
 	NodePubkey      = "pubkey"
 	NodeStatus      = "status"
-	NodePromotionTS = "promotion_TS" // TODO: change to promotion
-	NodeDemotionTS  = "demotion_TS"  // TODO: change to demotion
-	NodeAddedTS     = "added_TS"     // TODO: change to addition
+	NodePromotionTS = "promotion_TS" // TODO: change to promoted_at
+	NodeDemotionTS  = "demotion_TS"  // TODO: change to demoted_at
+	NodeLeakedAt    = "leaked_at"
+	NodeAddedTS     = "added_TS" // TODO: change to added_at
 )
 
 type DB struct {
@@ -116,7 +117,7 @@ func (db DB) NodeByID(ctx context.Context, ID graph.ID) (*graph.Node, error) {
 	return parseNode(fields)
 }
 
-// NodeByKey fetches a node by its pubkey
+// NodeByKey fetches a node by its pubkey. If no node is found, graph.ErrNodeNotFound is returned.
 func (db DB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, error) {
 	ID, err := db.Client.HGet(ctx, KeyKeyIndex, pubkey).Result()
 	if err != nil {
@@ -134,7 +135,6 @@ func (db DB) NodeByKey(ctx context.Context, pubkey string) (*graph.Node, error) 
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("failed to fetch node with pubkey %s: %w", pubkey, graph.ErrNodeNotFound)
 	}
-
 	return parseNode(fields)
 }
 
@@ -202,7 +202,7 @@ func (db DB) AddNode(ctx context.Context, pubkey string) (graph.ID, error) {
 func (db DB) Promote(ctx context.Context, ID graph.ID) error {
 	err := db.Client.HSet(ctx, node(ID), NodeStatus, graph.StatusActive, NodePromotionTS, time.Now().Unix()).Err()
 	if err != nil {
-		return fmt.Errorf("failed to promote %s: %w", node(ID), err)
+		return fmt.Errorf("failed to set status to active %s: %w", node(ID), err)
 	}
 	return nil
 }
@@ -211,7 +211,16 @@ func (db DB) Promote(ctx context.Context, ID graph.ID) error {
 func (db DB) Demote(ctx context.Context, ID graph.ID) error {
 	err := db.Client.HSet(ctx, node(ID), NodeStatus, graph.StatusInactive, NodeDemotionTS, time.Now().Unix()).Err()
 	if err != nil {
-		return fmt.Errorf("failed to demote %s: %w", node(ID), err)
+		return fmt.Errorf("failed to set status to inactive %s: %w", node(ID), err)
+	}
+	return nil
+}
+
+// Leak changes the node status to leaked
+func (db DB) Leak(ctx context.Context, ID graph.ID) error {
+	err := db.Client.HSet(ctx, node(ID), NodeStatus, graph.StatusLeaked, NodeLeakedAt, time.Now().Unix()).Err()
+	if err != nil {
+		return fmt.Errorf("failed to set status to leaked %s: %w", node(ID), err)
 	}
 	return nil
 }

@@ -1,34 +1,65 @@
-// Package arbiter provides a background service that periodically scans the graph
-// for nodes to promote or demote based on their pagerank.
+// Package arbiter provides a background service that demotes leaked nodes and
+// periodically scans the entire graph based on the number of walks changed.
 package arbiter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 )
 
-// T represents the Arbiter, which periodically scans the graph
-// for nodes to promote or demote based on their pagerank.
-type T struct {
-	db     regraph.DB
-	config Config
+var (
+	ErrInvalidPubkey = errors.New("invalid pubkey")
+	ErrQueueFull     = errors.New("queue full")
+)
 
-	walksChanged atomic.Int64
+// T represents the Arbiter.
+type T struct {
+	db           regraph.DB
+	leaks        chan string  // a channel of leaked pubkeys
+	walksChanged atomic.Int64 // tracks the number of walks changed since the last scan
+
+	config Config
 }
 
 func New(c Config, db regraph.DB) *T {
 	return &T{
 		db:     db,
+		leaks:  make(chan string, 1000),
 		config: c,
 	}
+}
+
+// NotifyLeaks adds pubkeys to the leaks channel, returning an error if the queue is full.
+func (a *T) NotifyLeaks(pubkeys ...string) error {
+	if len(pubkeys) == 0 {
+		return nil
+	}
+
+	var errs []error
+	for _, pk := range pubkeys {
+		if len(pk) != 64 || !nostr.IsValidPublicKey(pk) {
+			errs = append(errs, ErrInvalidPubkey)
+			continue
+		}
+
+		select {
+		case a.leaks <- pk:
+		default:
+			errs = append(errs, ErrQueueFull)
+			return errors.Join(errs...)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // TrackWalks increments the number of walks changed, which is used to decide when to proceed with another scan.
@@ -41,17 +72,14 @@ func (a *T) Run(ctx context.Context, onPromotion func(pubkeys ...string) error) 
 	slog.Info("Arbiter: ready")
 	defer slog.Info("Arbiter: shut down")
 
-	scan := func() {
-		promoted, demoted, err := a.scan(ctx, onPromotion)
-		if err != nil && ctx.Err() == nil {
-			slog.Error("Arbiter: failed to scan", "error", err)
-		}
-		if a.config.PrintStats {
-			slog.Info("Arbiter: scan completed", "promoted", promoted, "demoted", demoted)
-		}
+	// scan at startup
+	promoted, demoted, err := a.scan(ctx, onPromotion)
+	if err != nil && ctx.Err() == nil {
+		slog.Error("Arbiter: failed to scan", "error", err)
 	}
-
-	scan() // scan at startup
+	if a.config.PrintStats {
+		slog.Info("Arbiter: scan completed", "promoted", promoted, "demoted", demoted)
+	}
 
 	ticker := time.NewTicker(a.config.PollInterval)
 	defer ticker.Stop()
@@ -59,7 +87,22 @@ func (a *T) Run(ctx context.Context, onPromotion func(pubkeys ...string) error) 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			// drain the leaks queue and return.
+			for {
+				select {
+				case pk := <-a.leaks:
+					if err := a.setLeak(pk); err != nil {
+						slog.Error("Arbiter: failed to set leak", "pubkey", pk, "error", err)
+					}
+				default:
+					return
+				}
+			}
+
+		case pk := <-a.leaks:
+			if err := a.setLeak(pk); err != nil {
+				slog.Error("Arbiter: failed to set leak", "pubkey", pk, "error", err)
+			}
 
 		case <-ticker.C:
 			total, err := a.db.TotalWalks(ctx)
@@ -77,11 +120,57 @@ func (a *T) Run(ctx context.Context, onPromotion func(pubkeys ...string) error) 
 			changeRatio := float64(changed) / float64(total)
 
 			if changeRatio >= a.config.Activation {
-				scan()
+				promoted, demoted, err := a.scan(ctx, onPromotion)
+				if err != nil && ctx.Err() == nil {
+					slog.Error("Arbiter: failed to scan", "error", err)
+				}
+				if a.config.PrintStats {
+					slog.Info("Arbiter: scan completed", "promoted", promoted, "demoted", demoted)
+				}
 				a.walksChanged.Add(-changed)
 			}
 		}
 	}
+}
+
+// setLeak sets the leak status for the node associated with the given pubkey (if any).
+func (a *T) setLeak(pubkey string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	node, err := a.db.NodeByKey(ctx, pubkey)
+	if errors.Is(err, graph.ErrNodeNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to set leak for %s: %v", pubkey, err)
+	}
+
+	if node.Status == graph.StatusLeaked {
+		// already leaked, skip
+		return nil
+	}
+
+	if node.Status == graph.StatusActive {
+		visiting, err := a.db.WalksVisiting(ctx, node.ID, -1)
+		if err != nil {
+			return fmt.Errorf("failed to set leak for %s: %v", pubkey, err)
+		}
+
+		toRemove, err := walks.ToRemove(node.ID, visiting)
+		if err != nil {
+			return fmt.Errorf("failed to set leak for %s: %v", pubkey, err)
+		}
+
+		if err := a.db.RemoveWalks(ctx, toRemove...); err != nil {
+			return fmt.Errorf("failed to set leak for %s: %v", pubkey, err)
+		}
+	}
+
+	if err := a.db.Leak(ctx, node.ID); err != nil {
+		return fmt.Errorf("failed to set leak for %s: %v", pubkey, err)
+	}
+	return nil
 }
 
 // scan performs a single scan of the graph to promote/demote nodes.
@@ -126,14 +215,23 @@ func (a *T) scan(ctx context.Context, onPromotion func(pubkeys ...string) error)
 			node := nodes[i]
 			rank := ranks[i]
 
-			if node.Status == graph.StatusActive && rank < demotionT {
-				if err := Demote(a.db, node.ID); err != nil {
-					return promoted, demoted, err
-				}
-				demoted++
-			}
+			switch node.Status {
+			case graph.StatusLeaked:
+				// do nothing
 
-			if node.Status == graph.StatusInactive && rank >= promotionT {
+			case graph.StatusActive:
+				if rank < demotionT {
+					if err := Demote(a.db, node.ID); err != nil {
+						return promoted, demoted, err
+					}
+					demoted++
+				}
+
+			case graph.StatusInactive:
+				if rank < promotionT {
+					continue
+				}
+
 				added, found := node.Addition()
 				if !found {
 					return promoted, demoted, fmt.Errorf("node %s doesn't have an addition record", node.ID)
@@ -188,7 +286,10 @@ func Demote(db regraph.DB, node graph.ID) error {
 	if err := db.RemoveWalks(ctx, toRemove...); err != nil {
 		return fmt.Errorf("failed to demote node %s: %v", node, err)
 	}
-	return db.Demote(ctx, node)
+	if err := db.Demote(ctx, node); err != nil {
+		return fmt.Errorf("failed to demote node %s: %v", node, err)
+	}
+	return nil
 }
 
 // Promote generates random walks for the node and changes its status to active.
@@ -196,12 +297,15 @@ func Promote(db regraph.DB, node graph.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	ws, err := walks.Generate(ctx, db, node)
+	walks, err := walks.Generate(ctx, db, node)
 	if err != nil {
 		return fmt.Errorf("failed to promote node %s: %v", node, err)
 	}
-	if err := db.AddWalks(ctx, ws...); err != nil {
+	if err := db.AddWalks(ctx, walks...); err != nil {
 		return fmt.Errorf("failed to promote node %s: %v", node, err)
 	}
-	return db.Promote(ctx, node)
+	if err := db.Promote(ctx, node); err != nil {
+		return fmt.Errorf("failed to promote node %s: %v", node, err)
+	}
+	return nil
 }

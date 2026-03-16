@@ -61,6 +61,9 @@ type AfterHooks struct {
 	// to the graph storage while processing an event.
 	PubkeysAdded func(pubkeys ...string) error
 
+	// KeysLeaked is called after the engine has discovered leaked keys while processing an event.
+	KeysLeaked func(pubkeys ...string) error
+
 	// RelaysDiscovered is called after the engine has extracted relay URLs from an
 	// accepted relay-list event.
 	RelaysDiscovered func(relays ...string) error
@@ -223,7 +226,21 @@ func (e *T) processIngest(event *nostr.Event) error {
 	switch event.Kind {
 	case nostr.KindTextNote:
 		secrets := ParseSecrets(event.Content)
-		return e.storeLeakedKeys(secrets, time.Now())
+		if len(secrets) == 0 {
+			return nil
+		}
+
+		if err := e.storeLeaks(secrets, time.Now()); err != nil {
+			return err
+		}
+
+		if e.After.KeysLeaked != nil {
+			pubkeys := Pubkeys(secrets...)
+			if err := e.After.KeysLeaked(pubkeys...); err != nil {
+				logErrEvent(err, event)
+			}
+		}
+		return nil
 
 	case nostr.KindFollowList:
 		replaced, err := e.store.Replace(ctx, event)

@@ -16,8 +16,9 @@ import (
 
 const keyLeakedKeys = "leaked_keys"
 
-// storeLeakedKeys derives the pubkey from each secret key and stores them in Redis in the HASH "leaked_keys".
-func (e *T) storeLeakedKeys(secKeys []string, detectedAt time.Time) error {
+// storeLeaks derives the pubkey from each secret key and stores them in Redis in the HASH "leaked_keys".
+// Invalid secret keys are simply skipped.
+func (e *T) storeLeaks(secKeys []string, detectedAt time.Time) error {
 	if len(secKeys) == 0 {
 		return nil
 	}
@@ -41,6 +42,20 @@ func (e *T) storeLeakedKeys(secKeys []string, detectedAt time.Time) error {
 }
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
+
+// Pubkeys converts all secret keys to public keys.
+// Invalid keys are simply skipped.
+func Pubkeys(sks ...string) []string {
+	pks := make([]string, 0, len(sks))
+	for _, sk := range sks {
+		pk, err := nostr.GetPublicKey(sk)
+		if err != nil {
+			continue
+		}
+		pks = append(pks, pk)
+	}
+	return pks
+}
 
 // ParseSecrets returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
 func ParseSecrets(message string) []string {
