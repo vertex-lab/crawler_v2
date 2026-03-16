@@ -12,33 +12,47 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/pippellia-btc/slicex"
+	"github.com/redis/go-redis/v9"
 )
 
 const keyLeakedKeys = "leaked_keys"
 
 // storeLeaks derives the pubkey from each secret key and stores them in Redis in the HASH "leaked_keys".
-// Invalid secret keys are simply skipped.
-func (e *T) storeLeaks(secKeys []string, detectedAt time.Time) error {
+// Invalid secret keys are simply skipped. StoreLeaks returns the list of pubkeys that were added.
+func (e *T) StoreLeaks(secKeys []string, detectedAt time.Time) ([]string, error) {
 	if len(secKeys) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	pubkeys := make([]string, 0, len(secKeys))
+	cmds := make([]*redis.BoolCmd, 0, len(secKeys))
 	pipe := e.graph.Client.Pipeline()
+
 	for _, sk := range secKeys {
 		pk, err := nostr.GetPublicKey(sk)
 		if err != nil {
 			continue
 		}
-		pipe.HSetNX(ctx, keyLeakedKeys, pk, keyTime(sk, detectedAt))
+
+		pubkeys = append(pubkeys, pk)
+		cmds = append(cmds, pipe.HSetNX(ctx, keyLeakedKeys, pk, keyTime(sk, detectedAt)))
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("failed to store leaked keys: %w", err)
+		return nil, fmt.Errorf("failed to store leaked keys: %w", err)
 	}
-	return nil
+
+	addedPks := make([]string, 0, len(pubkeys))
+	for i := range cmds {
+		added := cmds[i].Val()
+		if added {
+			addedPks = append(addedPks, pubkeys[i])
+		}
+	}
+	return addedPks, nil
 }
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)

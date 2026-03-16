@@ -230,13 +230,13 @@ func (e *T) processIngest(event *nostr.Event) error {
 			return nil
 		}
 
-		if err := e.storeLeaks(secrets, time.Now()); err != nil {
+		addedPks, err := e.StoreLeaks(secrets, time.Now())
+		if err != nil {
 			return err
 		}
 
 		if e.After.KeysLeaked != nil {
-			pubkeys := Pubkeys(secrets...)
-			if err := e.After.KeysLeaked(pubkeys...); err != nil {
+			if err := e.After.KeysLeaked(addedPks...); err != nil {
 				logErrEvent(err, event)
 			}
 		}
