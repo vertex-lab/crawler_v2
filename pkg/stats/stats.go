@@ -17,12 +17,20 @@ import (
 // DayFormat is the format used for day keys throughout the stats package.
 const DayFormat = "2006-01-02"
 
+// Day holds the aggregated statistics for a single day.
+type Day struct {
+	ActivePubkeys  int64
+	CreatorPubkeys int64
+	TotalPubkeys   int64
+	EventsByKind   map[int]int64
+}
+
 type DB struct {
 	client       *redis.Client
 	creatorKinds []int // kinds whose authors count as "creators"
 }
 
-func New(c *redis.Client, creatorKinds []int) *DB {
+func NewDB(c *redis.Client, creatorKinds []int) *DB {
 	return &DB{client: c, creatorKinds: creatorKinds}
 }
 
@@ -118,20 +126,75 @@ func (db *DB) Aggregate(day string) error {
 	return nil
 }
 
-// nextMidnight returns a timer that will fire at the next midnight UTC.
-func nextMidnight() <-chan time.Time {
-	now := time.Now().UTC()
-	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-	wait := time.Until(midnight)
-	return time.After(wait)
+// Read returns the stats for the given days, keyed by day string (DayFormat).
+// Days with no recorded data are omitted from the result.
+func (db *DB) Read(ctx context.Context, days []string) (map[string]Day, error) {
+	if len(days) == 0 {
+		return nil, nil
+	}
+
+	pipe := db.client.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(days))
+	for i, day := range days {
+		cmds[i] = pipe.HGetAll(ctx, stats(day))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("failed to read stats: %w", err)
+	}
+
+	result := make(map[string]Day)
+	for i, day := range days {
+		fields := cmds[i].Val()
+		if len(fields) == 0 {
+			continue
+		}
+		s, err := parseStats(fields)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse stats for day %s: %w", day, err)
+		}
+		result[day] = s
+	}
+	return result, nil
 }
 
-// today returns the current day in UTC.
-func today() string {
-	return time.Now().UTC().Format("2006-01-02")
+// parseStats parses a raw map[string]string from a stats hash into a Day struct.
+// It returns an error if any numeric value cannot be parsed.
+func parseStats(fields map[string]string) (Day, error) {
+	s := Day{EventsByKind: make(map[int]int64)}
+	for field, raw := range fields {
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return Day{}, fmt.Errorf("field %q has non-integer value %q: %w", field, raw, err)
+		}
+		switch field {
+		case KeyActivePubkeys:
+			s.ActivePubkeys = v
+		case KeyCreatorPubkeys:
+			s.CreatorPubkeys = v
+		case KeyTotalPubkeys:
+			s.TotalPubkeys = v
+		default:
+			// field is "kind:<k>"
+			kStr := strings.TrimPrefix(field, KeyKind+separator)
+			k, err := strconv.Atoi(kStr)
+			if err != nil {
+				continue
+			}
+			s.EventsByKind[k] = v
+		}
+	}
+	return s, nil
 }
 
-// yesterday returns the previous day in UTC.
-func yesterday() string {
-	return time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+// DailyRange returns a slice of day strings for every day in the range [start, end),
+// truncated to midnight UTC.
+func DailyRange(start, end time.Time) []string {
+	start = start.UTC().Truncate(24 * time.Hour)
+	end = end.UTC().Truncate(24 * time.Hour)
+
+	var days []string
+	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+		days = append(days, d.Format(DayFormat))
+	}
+	return days
 }

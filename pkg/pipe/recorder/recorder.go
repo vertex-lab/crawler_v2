@@ -21,14 +21,14 @@ var (
 
 // T represents the recorder, which records events and creates statistics.
 type T struct {
-	db        *stats.DB
+	stats     *stats.DB
 	events    chan *nostr.Event
 	isClosing atomic.Bool
 }
 
 func New(c Config, redis *redis.Client) *T {
 	return &T{
-		db:     stats.New(redis, pipe.ContentKinds),
+		stats:  stats.NewDB(redis, pipe.ContentKinds),
 		events: make(chan *nostr.Event, c.Queue),
 	}
 }
@@ -64,7 +64,7 @@ func (r *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			for {
 				select {
 				case e := <-r.events:
-					if err := r.db.Record(e); err != nil {
+					if err := r.stats.Record(e); err != nil {
 						slog.Error("Recorder: failed to record event", "error", err, "id", e.ID, "kind", e.Kind, "pubkey", e.PubKey)
 					}
 
@@ -77,7 +77,7 @@ func (r *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			}
 
 		case e := <-r.events:
-			if err := r.db.Record(e); err != nil {
+			if err := r.stats.Record(e); err != nil {
 				slog.Error("Recorder: failed to record event", "error", err, "id", e.ID, "kind", e.Kind, "pubkey", e.PubKey)
 			}
 			if err := forward(e); err != nil {
@@ -90,7 +90,7 @@ func (r *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			timer = nextMidnight()
 			day := yesterday()
 
-			if err := r.db.Aggregate(day); err != nil {
+			if err := r.stats.Aggregate(day); err != nil {
 				slog.Error("Recorder: failed to finalize stats", "error", err)
 			} else {
 				slog.Info("Recorder: finalized stats", "day", day)
