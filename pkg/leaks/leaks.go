@@ -1,4 +1,5 @@
-package engine
+// Package leaks provides functionality for finding, storing and retrieving leaked secret keys from Redis.
+package leaks
 
 import (
 	"context"
@@ -17,19 +18,43 @@ import (
 
 const keyLeakedKeys = "leaked_keys"
 
-// storeLeaks derives the pubkey from each secret key and stores them in Redis in the HASH "leaked_keys".
+// keyTime returns a colon-separated secret key and unix timestamp.
+func keyTime(sk string, t time.Time) string {
+	return sk + ":" + strconv.FormatInt(t.Unix(), 10)
+}
+
+// parseKeyTime parses a colon-separated secret key and unix timestamp into a secret key and time.Time.
+func parseKeyTime(s string) (string, time.Time, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return "", time.Time{}, errors.New("invalid key time format")
+	}
+	sk := parts[0]
+	unix, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return sk, time.Unix(unix, 0), nil
+}
+
+type DB struct {
+	client *redis.Client
+}
+
+func NewDB(client *redis.Client) *DB {
+	return &DB{client: client}
+}
+
+// Store derives the pubkey from each secret key (hex) and stores them in Redis in the HASH "leaked_keys".
 // Invalid secret keys are simply skipped. StoreLeaks returns the list of pubkeys that were added.
-func (e *T) StoreLeaks(secKeys []string, detectedAt time.Time) ([]string, error) {
+func (db *DB) Store(ctx context.Context, secKeys []string, detectedAt time.Time) ([]string, error) {
 	if len(secKeys) == 0 {
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
 	pubkeys := make([]string, 0, len(secKeys))
 	cmds := make([]*redis.BoolCmd, 0, len(secKeys))
-	pipe := e.graph.Client.Pipeline()
+	pipe := db.client.Pipeline()
 
 	for _, sk := range secKeys {
 		pk, err := nostr.GetPublicKey(sk)
@@ -57,22 +82,8 @@ func (e *T) StoreLeaks(secKeys []string, detectedAt time.Time) ([]string, error)
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
 
-// Pubkeys converts all secret keys to public keys.
-// Invalid keys are simply skipped.
-func Pubkeys(sks ...string) []string {
-	pks := make([]string, 0, len(sks))
-	for _, sk := range sks {
-		pk, err := nostr.GetPublicKey(sk)
-		if err != nil {
-			continue
-		}
-		pks = append(pks, pk)
-	}
-	return pks
-}
-
-// ParseSecrets returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
-func ParseSecrets(message string) []string {
+// ParseNsecs returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
+func ParseNsecs(message string) []string {
 	if len(message) < 63 {
 		return nil
 	}
@@ -91,23 +102,4 @@ func ParseSecrets(message string) []string {
 		keys = append(keys, sk.(string))
 	}
 	return slicex.Unique(keys)
-}
-
-// keyTime returns a colon-separated secret key and unix timestamp.
-func keyTime(sk string, t time.Time) string {
-	return sk + ":" + strconv.FormatInt(t.Unix(), 10)
-}
-
-// parseKeyTime parses a colon-separated secret key and unix timestamp into a secret key and time.Time.
-func parseKeyTime(s string) (string, time.Time, error) {
-	parts := strings.Split(s, ":")
-	if len(parts) != 2 {
-		return "", time.Time{}, errors.New("invalid key time format")
-	}
-	sk := parts[0]
-	unix, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	return sk, time.Unix(unix, 0), nil
 }

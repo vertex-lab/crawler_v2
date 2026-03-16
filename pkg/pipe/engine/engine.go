@@ -16,6 +16,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/leaks"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/relays"
@@ -39,9 +40,12 @@ var (
 // to observe and react to events after they are processed.
 // Such configuration must happen before the engine is started with Ingest or Sync.
 type T struct {
-	store  *sqlite.Store
-	graph  regraph.DB
-	cache  *walks.CachedWalker
+	graph regraph.DB
+	cache *walks.CachedWalker
+
+	store *sqlite.Store
+	leaks *leaks.DB
+
 	events chan *nostr.Event
 
 	After  AfterHooks // user configurable hooks
@@ -90,6 +94,7 @@ func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 		config: c,
 		store:  store,
 		graph:  graph,
+		leaks:  leaks.NewDB(graph.Client),
 		events: make(chan *nostr.Event, c.Queue),
 		cache: walks.NewWalker(
 			walks.WithCapacity(c.CacheCapacity),
@@ -225,12 +230,12 @@ func (e *T) processIngest(event *nostr.Event) error {
 
 	switch event.Kind {
 	case nostr.KindTextNote:
-		secrets := ParseSecrets(event.Content)
-		if len(secrets) == 0 {
+		secKeys := leaks.ParseNsecs(event.Content)
+		if len(secKeys) == 0 {
 			return nil
 		}
 
-		addedPks, err := e.StoreLeaks(secrets, time.Now())
+		addedPks, err := e.leaks.Store(ctx, secKeys, time.Now())
 		if err != nil {
 			return err
 		}
