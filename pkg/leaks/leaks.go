@@ -101,10 +101,30 @@ func (db *DB) Read(ctx context.Context, pubkey string) (string, time.Time, error
 	return sk, t, nil
 }
 
+// Record represents a leaked key record.
 type Record struct {
 	Pubkey     string
 	Seckey     string
 	DetectedAt time.Time
+}
+
+// Validate returns an error if the record is invalid.
+// E.g. pubkey is invalid or doesn't match the seckey.
+func (r Record) Validate() error {
+	if len(r.Pubkey) != 64 || !nostr.IsValidPublicKey(r.Pubkey) {
+		return fmt.Errorf("invalid pubkey")
+	}
+	if len(r.Seckey) != 64 || !nostr.IsValid32ByteHex(r.Seckey) {
+		return fmt.Errorf("invalid seckey")
+	}
+	derivedPk, err := nostr.GetPublicKey(r.Seckey)
+	if err != nil {
+		return fmt.Errorf("failed to derive pubkey from seckey: %w", err)
+	}
+	if derivedPk != r.Pubkey {
+		return fmt.Errorf("pubkey doesn't match seckey")
+	}
+	return nil
 }
 
 // All returns all leak records from the database. The order or records is non-deterministic.
