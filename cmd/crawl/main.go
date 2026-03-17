@@ -73,7 +73,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	firehose := firehose.New(config.Firehose, pool, firehose.ExistPolicy(graph, config.Firehose.CacheSize))
+	firehose := firehose.New(config.Firehose, pool, firehose.ExistPolicy(graph, config.Firehose.FilterCache))
 	fetcher := fetcher.New(config.Fetcher, fetcher.SourcePool(pool))
 	engine := engine.New(config.Engine, store, graph)
 	recorder := recorder.New(config.Recorder, redis)

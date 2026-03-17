@@ -18,15 +18,19 @@ type Config struct {
 	// The firehose will fetch events newer than (now - offset).
 	Offset time.Duration `env:"FIREHOSE_OFFSET"`
 
-	// CacheSize is the maximum number of pubkeys the filter cache can hold.
-	CacheSize int `env:"FIREHOSE_FILTER_CACHE_SIZE"`
+	// FilterCache is the maximum number of pubkeys the filter cache can hold.
+	FilterCache int `env:"FIREHOSE_FILTER_CACHE_SIZE"`
+
+	// SeenCache is the maximum number of pubkeys the seen cache can hold.
+	SeenCache int `env:"FIREHOSE_SEEN_CACHE_SIZE"`
 }
 
 func NewConfig() Config {
 	return Config{
-		Kinds:     pipe.AllKinds,
-		Offset:    time.Minute,
-		CacheSize: 100_000,
+		Kinds:       pipe.AllKinds,
+		Offset:      time.Minute,
+		FilterCache: 100_000,
+		SeenCache:   100_000,
 	}
 }
 
@@ -51,8 +55,11 @@ func (c Config) Validate() error {
 		slog.Warn("firehose: offset is greater than 2 minutes, which might trigger relay rate limits")
 	}
 
-	if c.CacheSize < 1 {
-		return errors.New("cache size cannot be negative")
+	if c.FilterCache < 1 {
+		return errors.New("filter cache size cannot be negative")
+	}
+	if c.SeenCache < 1 {
+		return errors.New("seen cache size cannot be negative")
 	}
 	return nil
 }
@@ -61,6 +68,7 @@ func (c Config) String() string {
 	return fmt.Sprintf("Firehose:\n"+
 		"\tKinds: %v\n"+
 		"\tOffset: %v\n"+
-		"\tCache Size: %v\n",
-		c.Kinds, c.Offset, c.CacheSize)
+		"\tFilter Cache: %v\n"+
+		"\tSeen Cache: %v\n",
+		c.Kinds, c.Offset, c.FilterCache, c.SeenCache)
 }

@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/nbd-wtf/go-nostr"
@@ -14,22 +13,24 @@ import (
 )
 
 // T represents a firehose that reads the stream of events of a [relays.Pool].
-// It deduplicates events using a simple ring-buffer, applies the pubkey policy and forwards the rest.
+// It deduplicates events using a LRU cache, applies the pubkey policy and forwards the rest.
 type T struct {
 	pool   *relays.Pool
+	seen   *lru.Cache[string, struct{}] // holds the seen event IDs
 	policy Policy
 	config Config
 }
 
-// Policy decides whether to accept an event from the given pubkey.
-type Policy interface {
-	Allow(ctx context.Context, pubkey string) bool
-}
-
 // New creates a new [T]. The config is assumed to already be validated.
 func New(c Config, pool *relays.Pool, policy Policy) *T {
+	seen, err := lru.New[string, struct{}](c.SeenCache)
+	if err != nil {
+		panic(fmt.Errorf("Firehose: failed to create seen cache: %w", err))
+	}
+
 	return &T{
 		pool:   pool,
+		seen:   seen,
 		policy: policy,
 		config: c,
 	}
@@ -42,12 +43,9 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 
 	stream, err := f.pool.Stream("vertex-firehose", f.config.Filter())
 	if err != nil {
-		slog.Error("T: failed to create stream", "error", err)
+		slog.Error("Firehose: failed to create stream", "error", err)
 		return
 	}
-
-	// It is unlikely that we'll see the same event ID twice after all of these events.
-	seen := newRingBuffer(2048)
 
 	for {
 		select {
@@ -55,24 +53,29 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			return
 
 		case <-stream.Done():
-			slog.Error("T: stream closed", "error", stream.Err())
+			slog.Error("Firehose: stream closed", "error", stream.Err())
 			return
 
 		case e := <-stream.Events():
-			if seen.Contains(e.ID) {
+			if f.seen.Contains(e.ID) {
 				continue
 			}
-			seen.Add(e.ID)
+			f.seen.Add(e.ID, struct{}{})
 
 			if !f.policy.Allow(ctx, e.PubKey) {
 				continue
 			}
 
 			if err := forward(e); err != nil {
-				slog.Error("T: failed to forward", "error", err)
+				slog.Error("Firehose: failed to forward", "error", err)
 			}
 		}
 	}
+}
+
+// Policy decides whether to accept an event from the given pubkey.
+type Policy interface {
+	Allow(ctx context.Context, pubkey string) bool
 }
 
 // db is the subset of the database behaviour required by [ExistPolicy].
@@ -91,7 +94,7 @@ type existPolicy struct {
 // ExistPolicy is a [Policy] that allows a pubkey if and only if it already
 // exists in the database. It keeps an LRU cache because the assumption is that
 // keys are never removed from the database.
-func ExistPolicy(db db, cacheSize int) *existPolicy {
+func ExistPolicy(db db, cacheSize int) Policy {
 	cache, err := lru.New[string, struct{}](cacheSize)
 	if err != nil {
 		panic(fmt.Errorf("Firehose ExistPolicy: %w", err))
@@ -106,7 +109,7 @@ func (p *existPolicy) Allow(ctx context.Context, pubkey string) bool {
 
 	exists, err := p.db.Exists(ctx, pubkey)
 	if err != nil {
-		slog.Error("T: ExistPolicy: failed to check existence", "pubkey", pubkey, "error", err)
+		slog.Error("Firehose: ExistPolicy: failed to check existence", "pubkey", pubkey, "error", err)
 		return false
 	}
 
@@ -115,27 +118,4 @@ func (p *existPolicy) Allow(ctx context.Context, pubkey string) bool {
 		return true
 	}
 	return false
-}
-
-// ringBuffer is a fixed-capacity ring-buffer used for event deduplication.
-type ringBuffer struct {
-	IDs      []string
-	capacity int
-	write    int
-}
-
-func newRingBuffer(capacity int) *ringBuffer {
-	return &ringBuffer{
-		IDs:      make([]string, capacity),
-		capacity: capacity,
-	}
-}
-
-func (b *ringBuffer) Add(ID string) {
-	b.IDs[b.write] = ID
-	b.write = (b.write + 1) % b.capacity
-}
-
-func (b *ringBuffer) Contains(ID string) bool {
-	return slices.Contains(b.IDs, ID)
 }

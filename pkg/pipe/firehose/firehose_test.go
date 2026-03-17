@@ -28,7 +28,8 @@ func (m *mockDB) Exists(_ context.Context, pubkey string) (bool, error) {
 	return m.exists[pubkey], m.err
 }
 
-// Manually change pip's follow list and see if the events gets printed. Works only with `go test`
+// Manually publish an event with the pip's pubkey and see if the events gets printed.
+// Works only with `go test`
 func TestFirehose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*60)
 	defer cancel()
@@ -45,52 +46,6 @@ func TestFirehose(t *testing.T) {
 	firehose.Run(ctx, func(e *nostr.Event) error {
 		fmt.Printf("ID: %s, Kind: %d, Pubkey: %s\n", e.ID, e.Kind, e.PubKey)
 		return nil
-	})
-}
-
-func TestBuffer(t *testing.T) {
-	t.Run("empty buffer contains nothing", func(t *testing.T) {
-		b := newRingBuffer(4)
-		if b.Contains("id-1") {
-			t.Error("empty buffer should not contain any ID")
-		}
-	})
-
-	t.Run("contains ID after add", func(t *testing.T) {
-		b := newRingBuffer(4)
-		b.Add("id-1")
-		if !b.Contains("id-1") {
-			t.Error("buffer should contain id-1 after Add")
-		}
-	})
-
-	t.Run("does not contain un-added ID", func(t *testing.T) {
-		b := newRingBuffer(4)
-		b.Add("id-1")
-		if b.Contains("id-2") {
-			t.Error("buffer should not contain id-2")
-		}
-	})
-
-	t.Run("ring wrap-around evicts oldest entry", func(t *testing.T) {
-		b := newRingBuffer(3)
-		b.Add("id-1")
-		b.Add("id-2")
-		b.Add("id-3")
-		// writing id-4 wraps around and overwrites id-1
-		b.Add("id-4")
-		if b.Contains("id-1") {
-			t.Error("id-1 should have been evicted after wrap-around")
-		}
-		if !b.Contains("id-2") {
-			t.Error("id-2 should still be present")
-		}
-		if !b.Contains("id-3") {
-			t.Error("id-3 should still be present")
-		}
-		if !b.Contains("id-4") {
-			t.Error("id-4 should be present")
-		}
 	})
 }
 
