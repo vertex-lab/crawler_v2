@@ -101,6 +101,35 @@ func (db *DB) Read(ctx context.Context, pubkey string) (string, time.Time, error
 	return sk, t, nil
 }
 
+type Record struct {
+	Pubkey     string
+	Seckey     string
+	DetectedAt time.Time
+}
+
+// All returns all leak records from the database. The order or records is non-deterministic.
+func (db *DB) All(ctx context.Context) ([]Record, error) {
+	result, err := db.client.HGetAll(ctx, keyLeakedKeys).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all leaked keys: %w", err)
+	}
+
+	records := make([]Record, 0, len(result))
+	for pk, val := range result {
+		sk, t, err := parseKeyTime(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse leaked key: %w", err)
+		}
+
+		records = append(records, Record{
+			Pubkey:     pk,
+			Seckey:     sk,
+			DetectedAt: t,
+		})
+	}
+	return records, nil
+}
+
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
 
 // ParseNsecs returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
