@@ -2,11 +2,13 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
 
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
+	"github.com/vertex-lab/crawler_v2/pkg/leaks"
 	"github.com/vertex-lab/crawler_v2/pkg/pagerank"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
@@ -25,9 +27,10 @@ func TestWalks(t *testing.T) {
 	fmt.Println("Testing the walks consistency")
 	fmt.Printf("-----------------------------\n\n")
 
-	db, err := regraph.New(
-		redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
-	)
+	rClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer rClient.Close()
+
+	db, err := regraph.New(rClient)
 	if err != nil {
 		t.Fatalf("setup failed %v", err)
 	}
@@ -85,9 +88,10 @@ func TestPagerank(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the pagerank distribution")
 
-	db, err := regraph.New(
-		redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
-	)
+	redis := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer redis.Close()
+
+	db, err := regraph.New(redis)
 	if err != nil {
 		t.Fatalf("setup failed %v", err)
 	}
@@ -173,4 +177,57 @@ func expectedDistance(activeNodes, totalNodes int) float64 {
 
 	walks := float64(activeNodes * walks.N)
 	return errorConstant * float64(totalNodes) / math.Sqrt(walks)
+}
+
+func TestLeaks(t *testing.T) {
+	fmt.Println("---------------------------------")
+	fmt.Println("Testing the leaked nodes")
+
+	redis := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer redis.Close()
+
+	leaks := leaks.NewDB(redis)
+	db, err := regraph.New(redis)
+	if err != nil {
+		t.Fatalf("setup failed %v", err)
+	}
+
+	records, err := leaks.All(ctx)
+	if err != nil {
+		t.Fatalf("failed to get leaked keys: %v", err)
+	}
+
+	for _, r := range records {
+		if err := r.Validate(); err != nil {
+			t.Errorf("invalid record %v: %v", r, err)
+			continue
+		}
+
+		// if the pubkey is in the graph, it must be associated
+		// with a "leaked" node, which must not have any walks starting from it
+		node, err := db.NodeByKey(ctx, r.Pubkey)
+		if errors.Is(err, graph.ErrNodeNotFound) {
+			continue
+		}
+		if err != nil {
+			t.Errorf("failed to get node of %s: %v", r.Pubkey, err)
+			continue
+		}
+		if node.Status != graph.StatusLeaked {
+			t.Errorf("node %s has status %s", node.ID, node.Status)
+			continue
+		}
+
+		walksVisiting, err := db.WalksVisiting(ctx, node.ID, -1)
+		if err != nil {
+			t.Errorf("failed to get walks visiting %s: %v", r.Pubkey, err)
+			continue
+		}
+
+		for _, walk := range walksVisiting {
+			if walk.Path[0] == node.ID {
+				t.Errorf("leaked node %s has walk: %v", r.Pubkey, walk)
+			}
+		}
+	}
 }
