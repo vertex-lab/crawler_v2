@@ -40,7 +40,7 @@ func TestFirehose(t *testing.T) {
 	}
 
 	config := NewConfig()
-	policy := ExistPolicy(&mockDB{exists: map[string]bool{pip: true}}, 128)
+	policy := TrustPolicy(&mockDB{exists: map[string]bool{pip: true}}, 128)
 
 	firehose := New(config, pool, policy)
 	firehose.Run(ctx, func(e *nostr.Event) error {
@@ -49,40 +49,41 @@ func TestFirehose(t *testing.T) {
 	})
 }
 
-func TestExistPolicy(t *testing.T) {
-	const pubkey = "abc123"
+func TestTrustPolicy(t *testing.T) {
+	pubkey := "abc123"
+	event := &nostr.Event{PubKey: pubkey}
 
 	t.Run("allows pubkey present in store", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{pubkey: true}}
-		gate := ExistPolicy(store, 128)
-		if !gate.Allow(ctx, pubkey) {
+		gate := TrustPolicy(store, 128)
+		if !gate.Allow(ctx, event) {
 			t.Error("expected Allows to return true for a known pubkey")
 		}
 	})
 
 	t.Run("denies pubkey absent from store", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{}}
-		gate := ExistPolicy(store, 128)
-		if gate.Allow(ctx, pubkey) {
+		gate := TrustPolicy(store, 128)
+		if gate.Allow(ctx, event) {
 			t.Error("expected Allows to return false for an unknown pubkey")
 		}
 	})
 
 	t.Run("denies pubkey on store error", func(t *testing.T) {
 		store := &mockDB{err: errors.New("redis down")}
-		gate := ExistPolicy(store, 128)
-		if gate.Allow(ctx, pubkey) {
+		gate := TrustPolicy(store, 128)
+		if gate.Allow(ctx, event) {
 			t.Error("expected Allows to return false when the store errors")
 		}
 	})
 
 	t.Run("caches positive lookups", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{pubkey: true}}
-		gate := ExistPolicy(store, 128)
+		gate := TrustPolicy(store, 128)
 
-		gate.Allow(ctx, pubkey)
-		gate.Allow(ctx, pubkey)
-		gate.Allow(ctx, pubkey)
+		gate.Allow(ctx, event)
+		gate.Allow(ctx, event)
+		gate.Allow(ctx, event)
 
 		if store.calls != 1 {
 			t.Errorf("expected 1 store call, got %d", store.calls)
@@ -91,10 +92,10 @@ func TestExistPolicy(t *testing.T) {
 
 	t.Run("does not cache negative lookups", func(t *testing.T) {
 		store := &mockDB{exists: map[string]bool{}}
-		gate := ExistPolicy(store, 128)
+		gate := TrustPolicy(store, 128)
 
-		gate.Allow(ctx, pubkey)
-		gate.Allow(ctx, pubkey)
+		gate.Allow(ctx, event)
+		gate.Allow(ctx, event)
 
 		if store.calls != 2 {
 			t.Errorf("expected 2 store calls, got %d", store.calls)

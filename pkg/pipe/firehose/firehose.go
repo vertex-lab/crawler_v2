@@ -9,6 +9,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/vertex-lab/crawler_v2/pkg/leaks"
 	"github.com/vertex-lab/crawler_v2/pkg/relays"
 )
 
@@ -60,62 +61,106 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			if f.seen.Contains(e.ID) {
 				continue
 			}
+
 			f.seen.Add(e.ID, struct{}{})
-
-			if !f.policy.Allow(ctx, e.PubKey) {
-				continue
-			}
-
-			if err := forward(e); err != nil {
-				slog.Error("Firehose: failed to forward", "error", err)
+			if f.policy.Allow(ctx, e) {
+				if err := forward(e); err != nil {
+					slog.Error("Firehose: failed to forward", "error", err)
+				}
 			}
 		}
 	}
 }
 
-// Policy decides whether to accept an event from the given pubkey.
+// Policy decides whether to allow an event.
 type Policy interface {
-	Allow(ctx context.Context, pubkey string) bool
+	Allow(ctx context.Context, e *nostr.Event) bool
 }
 
-// db is the subset of the database behaviour required by [ExistPolicy].
-type db interface {
-	Exists(ctx context.Context, pubkey string) (bool, error)
-}
-
-// ExistPolicy is a [Policy] that allows a pubkey if and only if it already
-// exists in the database. It keeps an LRU cache because the assumption is that
-// keys are never removed from the database.
-type existPolicy struct {
-	cache *lru.Cache[string, struct{}]
-	db    db
-}
-
-// ExistPolicy is a [Policy] that allows a pubkey if and only if it already
-// exists in the database. It keeps an LRU cache because the assumption is that
-// keys are never removed from the database.
-func ExistPolicy(db db, cacheSize int) Policy {
+// TrustPolicy is a [Policy] that allows a pubkey if and only if it already
+// exists in the database. The assumptions are:
+// - pubkeys in the database are somewhat trusted
+// - pubkeys are never removed from the database
+func TrustPolicy(db db, cacheSize int) Policy {
 	cache, err := lru.New[string, struct{}](cacheSize)
 	if err != nil {
 		panic(fmt.Errorf("Firehose ExistPolicy: %w", err))
 	}
-	return &existPolicy{cache: cache, db: db}
+	return &trustPolicy{cache: cache, db: db}
 }
 
-func (p *existPolicy) Allow(ctx context.Context, pubkey string) bool {
-	if p.cache.Contains(pubkey) {
+type trustPolicy struct {
+	cache *lru.Cache[string, struct{}]
+	db    db
+}
+
+// db is the subset of the database behaviour required by [TrustPolicy].
+type db interface {
+	Exists(ctx context.Context, pubkey string) (bool, error)
+}
+
+func (p *trustPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
+	if p.cache.Contains(e.PubKey) {
 		return true
 	}
 
-	exists, err := p.db.Exists(ctx, pubkey)
+	exists, err := p.db.Exists(ctx, e.PubKey)
 	if err != nil {
-		slog.Error("Firehose: ExistPolicy: failed to check existence", "pubkey", pubkey, "error", err)
+		slog.Error("Firehose: TrustPolicy: failed to check existence", "pubkey", e.PubKey, "error", err)
 		return false
 	}
 
 	if exists {
-		p.cache.Add(pubkey, struct{}{})
+		p.cache.Add(e.PubKey, struct{}{})
 		return true
 	}
 	return false
+}
+
+// LeakPolicy is a [Policy] that allows events that might contain a leak,
+// as defined by the [leaks.Contains] package.
+func LeakPolicy() Policy {
+	return leakPolicy{}
+}
+
+type leakPolicy struct{}
+
+func (p leakPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
+	return leaks.Contains(e.Content)
+}
+
+// OrPolicy is a [Policy] that allows an event if any of the given policies allow it.
+func OrPolicy(policies ...Policy) Policy {
+	return orPolicy{policies}
+}
+
+type orPolicy struct {
+	policies []Policy
+}
+
+func (p orPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
+	for _, policy := range p.policies {
+		if policy.Allow(ctx, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// AndPolicy is a [Policy] that allows an event if all of the given policies allow it.
+func AndPolicy(policies ...Policy) Policy {
+	return andPolicy{policies}
+}
+
+type andPolicy struct {
+	policies []Policy
+}
+
+func (p andPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
+	for _, policy := range p.policies {
+		if !policy.Allow(ctx, e) {
+			return false
+		}
+	}
+	return true
 }
