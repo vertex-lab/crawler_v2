@@ -2,7 +2,6 @@ package e2e_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -179,6 +178,8 @@ func expectedDistance(activeNodes, totalNodes int) float64 {
 	return errorConstant * float64(totalNodes) / math.Sqrt(walks)
 }
 
+// TestLeaks tests that all leaked nodes are in the graph with status "leaked"
+// and that no walks start from them.
 func TestLeaks(t *testing.T) {
 	fmt.Println("---------------------------------")
 	fmt.Println("Testing the leaked nodes")
@@ -203,12 +204,7 @@ func TestLeaks(t *testing.T) {
 			continue
 		}
 
-		// if the pubkey is in the graph, it must be associated
-		// with a "leaked" node, which must not have any walks starting from it
 		node, err := db.NodeByKey(ctx, r.Pubkey)
-		if errors.Is(err, graph.ErrNodeNotFound) {
-			continue
-		}
 		if err != nil {
 			t.Errorf("failed to get node of %s: %v", r.Pubkey, err)
 			continue
