@@ -462,6 +462,11 @@ func TestParseNsecs(t *testing.T) {
 			message: "...(" + nsec1 + ")..." + " !!! [" + nsec2 + "] ???",
 			keys:    []string{key1, key2},
 		},
+		{
+			name:    "Mr nsec",
+			message: "{\"name\":\"Mr.nsec1zdp9nfa3346g5nnkt74k7tlt6hat4xtvgdt5madyj85wdjvtuakq05rxys\",\"about\":\"Just your average nostr enjoyer\"}",
+			keys:    []string{"134259a7b18d748a4e765fab6f2febd5faba996c43574df5a491e8e6c98be76c"},
+		},
 	}
 
 	for _, test := range tests {
