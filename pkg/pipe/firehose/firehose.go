@@ -118,7 +118,7 @@ func (p *trustPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
 }
 
 // LeakPolicy is a [Policy] that allows events that might contain a leak,
-// as defined by the [leaks.Contains] package.
+// as defined by the [leaks.Found] package.
 func LeakPolicy() Policy {
 	return leakPolicy{}
 }
@@ -126,7 +126,7 @@ func LeakPolicy() Policy {
 type leakPolicy struct{}
 
 func (p leakPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
-	return leaks.Contains(e.Content)
+	return leaks.Found(e.Content)
 }
 
 // OrPolicy is a [Policy] that allows an event if any of the given policies allow it.

@@ -275,7 +275,7 @@ var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz
 // ParseNsecs returns all valid hex secret keys encoded in the message as nip19 "nsec" values.
 // Resulting secret keys are deduplicated.
 func ParseNsecs(message string) []string {
-	if !Contains(message) {
+	if !Found(message) {
 		return nil
 	}
 
@@ -309,9 +309,9 @@ var nsecPermutations = []string{
 	"nseC1", "NseC1", "nSeC1", "NSeC1", "nsEC1", "NsEC1", "nSEC1", "nSec1",
 }
 
-// Contains reports whether msg contains at least one nsec candidate.
+// Found reports whether msg contains at least one nsec candidate.
 // It's faster than ParseNsecs as it stops at the first match and doesn't perform full validation.
-func Contains(msg string) bool {
+func Found(msg string) bool {
 	if len(msg) < 63 {
 		return false
 	}
