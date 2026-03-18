@@ -27,12 +27,6 @@ import (
 var (
 	ErrNotRunning = errors.New("engine is not running")
 	ErrQueueFull  = errors.New("engine queue is full")
-
-	// IngestKinds are the event kinds the engine accepts in ingest mode.
-	IngestKinds = slices.Concat(pipe.ProfileKinds, []int{nostr.KindTextNote})
-
-	// SyncKinds are the event kinds the engine accepts in sync mode.
-	SyncKinds = []int{nostr.KindFollowList}
 )
 
 // T is the unified engine that consumes events from an internal queue and
@@ -79,8 +73,7 @@ type AfterHooks struct {
 
 type engineMode struct {
 	name    string
-	kinds   []int // accepted event kinds
-	process func(*nostr.Event) error
+	process func(*nostr.Event)
 }
 
 func (m engineMode) IsSet() bool {
@@ -103,21 +96,7 @@ func New(c Config, store *sqlite.Store, graph regraph.DB) *T {
 	}
 }
 
-// AcceptedKinds returns the event kinds the engine accepts in the current mode.
-func (e *T) AcceptedKinds() []int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	if !e.mode.IsSet() {
-		return nil
-	}
-
-	c := make([]int, len(e.mode.kinds))
-	copy(c, e.mode.kinds)
-	return c
-}
-
-// Enqueue adds an event to the engine queue if it's accepted by the current mode.
+// Enqueue adds an event to the engine queue if it's running.
 // It is non-blocking and returns ErrQueueFull when the queue is saturated.
 func (e *T) Enqueue(event *nostr.Event) error {
 	if event == nil {
@@ -129,10 +108,7 @@ func (e *T) Enqueue(event *nostr.Event) error {
 	e.mu.RUnlock()
 
 	if !mode.IsSet() {
-		return errors.New("engine is not running")
-	}
-	if !slices.Contains(mode.kinds, event.Kind) {
-		return nil
+		return ErrNotRunning
 	}
 
 	select {
@@ -154,7 +130,6 @@ func (e *T) Ingest(ctx context.Context) {
 
 	e.mode = engineMode{
 		name:    "ingest",
-		kinds:   IngestKinds,
 		process: e.processIngest,
 	}
 
@@ -173,7 +148,6 @@ func (e *T) Sync(ctx context.Context) {
 
 	e.mode = engineMode{
 		name:    "sync",
-		kinds:   SyncKinds,
 		process: e.processSync,
 	}
 
@@ -186,14 +160,11 @@ func (e *T) run(ctx context.Context) {
 	slog.Info("Engine: ready")
 	defer slog.Info("Engine: shut down")
 
-	mode := e.mode
+	process := e.mode.process
 	processed := 0
 
 	handle := func(event *nostr.Event) {
-		if err := mode.process(event); err != nil {
-			logErrEvent(err, event)
-			return
-		}
+		process(event)
 		processed++
 		if e.config.PrintEvery > 0 && processed%e.config.PrintEvery == 0 {
 			slog.Info("Engine", "processed", processed)
@@ -212,6 +183,7 @@ func (e *T) run(ctx context.Context) {
 				select {
 				case event := <-e.events:
 					handle(event)
+
 				default:
 					return
 				}
@@ -224,44 +196,37 @@ func (e *T) run(ctx context.Context) {
 }
 
 // processIngest is the process function for the engine in the [T.Ingest] method.
-func (e *T) processIngest(event *nostr.Event) error {
+func (e *T) processIngest(event *nostr.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
+	if leaks.Found(event.Content) {
+		// found a candidate leak
+		if err := e.updateLeaks(ctx, event); err != nil {
+			logErrEvent(err, event)
+		}
+	}
+
 	switch event.Kind {
-	case nostr.KindTextNote:
-		secKeys := leaks.ParseNsecs(event.Content)
-		if len(secKeys) == 0 {
-			return nil
-		}
-
-		addedPks, err := e.leaks.Store(ctx, secKeys, time.Now())
-		if err != nil {
-			return err
-		}
-
-		if e.After.KeysLeaked != nil {
-			if err := e.After.KeysLeaked(addedPks...); err != nil {
-				logErrEvent(err, event)
-			}
-		}
-		return nil
-
 	case nostr.KindFollowList:
 		replaced, err := e.store.Replace(ctx, event)
 		if err != nil {
-			return err
+			logErrEvent(err, event)
+			return
 		}
 
 		if replaced {
-			return e.updateGraph(ctx, event)
+			if err := e.updateGraph(ctx, event); err != nil {
+				logErrEvent(err, event)
+				return
+			}
 		}
-		return nil
 
 	case nostr.KindRelayListMetadata:
 		replaced, err := e.store.Replace(ctx, event)
 		if err != nil {
-			return err
+			logErrEvent(err, event)
+			return
 		}
 
 		if replaced && e.After.RelaysDiscovered != nil {
@@ -270,23 +235,33 @@ func (e *T) processIngest(event *nostr.Event) error {
 				logErrEvent(err, event)
 			}
 		}
-		return nil
 
 	default:
-		// other kinds are archived normally.
-		return e.archive(ctx, event)
+		if slices.Contains(pipe.ProfileKinds, event.Kind) {
+			if err := e.archive(ctx, event); err != nil {
+				logErrEvent(err, event)
+			}
+		}
 	}
 }
 
 // processSync is the process function for the engine in the [T.Sync] method.
-func (e *T) processSync(event *nostr.Event) error {
+func (e *T) processSync(event *nostr.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
-	if event.Kind == nostr.KindFollowList {
-		return e.updateGraph(ctx, event)
+	if leaks.Found(event.Content) {
+		// found a candidate leak
+		if err := e.updateLeaks(ctx, event); err != nil {
+			logErrEvent(err, event)
+		}
 	}
-	return nil
+
+	if event.Kind == nostr.KindFollowList {
+		if err := e.updateGraph(ctx, event); err != nil {
+			logErrEvent(err, event)
+		}
+	}
 }
 
 // archive applies nostr kind persistence semantics:
@@ -305,6 +280,66 @@ func (e *T) archive(ctx context.Context, event *nostr.Event) error {
 	default:
 		return nil
 	}
+}
+
+// updateLeaks updates the leaks database with any leaked keys found in the event content.
+func (e *T) updateLeaks(ctx context.Context, event *nostr.Event) error {
+	seckeys := leaks.ParseNsecs(event.Content)
+	if len(seckeys) == 0 {
+		return nil
+	}
+
+	filtered, err := e.filterSeckeys(ctx, seckeys)
+	if err != nil {
+		return fmt.Errorf("failed to update leaks: %w", err)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	slog.Info("found leaked keys", "event", event.ID, "total", len(seckeys), "filtered", len(filtered))
+
+	added, err := e.leaks.Store(ctx, filtered, time.Now())
+	if err != nil {
+		return err
+	}
+
+	if e.After.KeysLeaked != nil {
+		return e.After.KeysLeaked(added...)
+	}
+	return nil
+}
+
+// filterSeckeys returns the subset of seckeys whose associated public keys are in the graph.
+// If any of the seckeys are invalid, an error is returned.
+func (e *T) filterSeckeys(ctx context.Context, seckeys []string) ([]string, error) {
+	if len(seckeys) == 0 {
+		return nil, nil
+	}
+
+	pubkeys := make([]string, 0, len(seckeys))
+	for _, sk := range seckeys {
+		pk, err := nostr.GetPublicKey(sk)
+		if err != nil {
+			return nil, fmt.Errorf("failed to filter seckeys: %w", err)
+		}
+		if !nostr.IsValidPublicKey(pk) {
+			return nil, fmt.Errorf("failed to filter seckeys: invalid secret key: %s", sk)
+		}
+		pubkeys = append(pubkeys, pk)
+	}
+
+	IDs, err := e.graph.NodeIDs(ctx, pubkeys...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter seckeys: %w", err)
+	}
+
+	known := make([]string, 0, len(seckeys))
+	for i, sk := range seckeys {
+		if IDs[i] != "" {
+			known = append(known, sk)
+		}
+	}
+	return known, nil
 }
 
 // updateGraph updates the redis graph and walks using the given follow-list event.
@@ -333,7 +368,7 @@ func (e *T) updateGraph(ctx context.Context, event *nostr.Event) error {
 	return nil
 }
 
-// Compute the delta from the "p" tags in the follow list.
+// computeDelta computes the delta from the "p" tags in the follow list.
 func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, error) {
 	author, err := e.graph.NodeByKey(ctx, event.PubKey)
 	if err != nil {
