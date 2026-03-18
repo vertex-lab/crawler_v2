@@ -67,7 +67,6 @@ func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time)
 	if len(seckeys) == 0 {
 		return nil, nil
 	}
-	seckeys = slicex.Unique(seckeys)
 
 	type entry struct {
 		pk  string
@@ -80,7 +79,7 @@ func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time)
 
 	for _, sk := range seckeys {
 		pk, err := nostr.GetPublicKey(sk)
-		if err != nil {
+		if err != nil || !nostr.IsValidPublicKey(pk) {
 			continue
 		}
 		// store the command so we know if "secret" field was already set.
@@ -273,7 +272,8 @@ func proof(seckey, pubkey string) (string, error) {
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
 
-// ParseNsecs returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
+// ParseNsecs returns all valid hex secret keys encoded in the message as nip19 "nsec" values.
+// Resulting secret keys are deduplicated.
 func ParseNsecs(message string) []string {
 	if !Contains(message) {
 		return nil
@@ -286,11 +286,19 @@ func ParseNsecs(message string) []string {
 
 	keys := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		prefix, sk, err := nip19.Decode(strings.ToLower(candidate))
+		prefix, v, err := nip19.Decode(strings.ToLower(candidate))
 		if err != nil || prefix != "nsec" {
 			continue
 		}
-		keys = append(keys, sk.(string))
+		// nip19.Decode only checks that the payload is 32 bytes; it does not
+		// validate that the scalar is in [1, n-1], so we do it here.
+		sk := v.(string)
+		pk, err := nostr.GetPublicKey(sk)
+		if err != nil || !nostr.IsValidPublicKey(pk) {
+			continue
+		}
+
+		keys = append(keys, sk)
 	}
 	return slicex.Unique(keys)
 }

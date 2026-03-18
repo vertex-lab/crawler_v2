@@ -467,6 +467,20 @@ func TestParseNsecs(t *testing.T) {
 			message: "{\"name\":\"Mr.nsec1zdp9nfa3346g5nnkt74k7tlt6hat4xtvgdt5madyj85wdjvtuakq05rxys\",\"about\":\"Just your average nostr enjoyer\"}",
 			keys:    []string{"134259a7b18d748a4e765fab6f2febd5faba996c43574df5a491e8e6c98be76c"},
 		},
+		{
+			// nsec encoding of 32 zero bytes (k=0): valid bech32, invalid secp256k1 scalar.
+			// nip19.Decode accepts it, but ParseNsecs rejects it because the derived pubkey is invalid.
+			name:    "all-zero scalar: valid bech32, invalid secp256k1 key",
+			message: "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwkhnav",
+			keys:    []string{},
+		},
+		{
+			// nsec encoding of the curve order n (k=n): valid bech32, invalid secp256k1 scalar.
+			// nip19.Decode accepts it, but ParseNsecs rejects it because the derived pubkey is invalid.
+			name:    "k=n scalar: valid bech32, invalid secp256k1 key",
+			message: "nsec1lllllllllllllllllllllllll6a2ah8x4ay2qwal6f0ge5pkg9qstu3zum",
+			keys:    []string{},
+		},
 	}
 
 	for _, test := range tests {
