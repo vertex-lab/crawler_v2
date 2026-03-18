@@ -275,7 +275,7 @@ var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz
 
 // ParseNsecs returns all valid (hex) secret keys encoded in the message as nip19 "nsec" values.
 func ParseNsecs(message string) []string {
-	if len(message) < 63 {
+	if !Match(message) {
 		return nil
 	}
 
@@ -293,4 +293,25 @@ func ParseNsecs(message string) []string {
 		keys = append(keys, sk.(string))
 	}
 	return slicex.Unique(keys)
+}
+
+// nsecPermutations contains all possible upper/lower case permutations of the "nsec1" prefix.
+var nsecPermutations = []string{
+	"nsec1", "Nsec1", "NSEC1", "NSec1", "nsEc1", "NsEc1", "nSEc1", "NSEc1",
+	"nseC1", "NseC1", "nSeC1", "NSeC1", "nsEC1", "NsEC1", "nSEC1", "nSec1",
+}
+
+// Match reports whether msg contains at least one nsec candidate.
+// It's faster than ParseNsecs as it stops at the first match and doesn't perform full validation.
+func Match(msg string) bool {
+	if len(msg) < 63 {
+		return false
+	}
+
+	for _, prefix := range nsecPermutations {
+		if strings.Contains(msg, prefix) {
+			return true
+		}
+	}
+	return false
 }

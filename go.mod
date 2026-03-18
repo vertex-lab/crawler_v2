@@ -3,6 +3,7 @@ module github.com/vertex-lab/crawler_v2
 go 1.25
 
 require (
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/goccy/go-json v0.10.5
 	github.com/gorilla/websocket v1.5.3
@@ -16,7 +17,6 @@ require (
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.1 // indirect
