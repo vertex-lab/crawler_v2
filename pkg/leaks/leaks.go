@@ -3,6 +3,8 @@ package leaks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,35 +12,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/pippellia-btc/slicex"
 	"github.com/redis/go-redis/v9"
 )
 
-const keyLeakedKeys = "leaked_keys"
+const (
+	// ProofMessage is the message that is signed by the secret key to prove the leak.
+	proofMessage = "vertex-proof-leak:"
+
+	// keyLeak is the prefix for all leak keys in Redis.
+	keyLeak = "leak:"
+)
+
+// ProofMessage returns the message that should be signed by the secret key to prove the leak.
+func ProofMessage(pk string) string {
+	return proofMessage + pk
+}
+
+// Key returns the Redis key for a given pubkey leak record.
+// It does not validate the pubkey format.
+func Key(pk string) string {
+	return keyLeak + pk
+}
+
+// Status represents the confidence level of a leaked key detection.
+type Status string
+
+const (
+	// Confirmed means the leak has been verified with certainty.
+	Confirmed Status = "confirmed"
+	// Suspected means the leak has been detected but not yet verified.
+	Suspected Status = "suspected"
+)
 
 // ErrNotFound is returned when no leak record exists for the given pubkey.
 var ErrNotFound = errors.New("leak not found")
-
-// keyTime returns a colon-separated secret key and unix timestamp.
-func keyTime(sk string, t time.Time) string {
-	return sk + ":" + strconv.FormatInt(t.Unix(), 10)
-}
-
-// parseKeyTime parses a colon-separated secret key and unix timestamp into a secret key and time.Time.
-func parseKeyTime(s string) (string, time.Time, error) {
-	parts := strings.Split(s, ":")
-	if len(parts) != 2 {
-		return "", time.Time{}, errors.New("invalid key time format")
-	}
-	sk := parts[0]
-	unix, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	return sk, time.Unix(unix, 0), nil
-}
 
 type DB struct {
 	client *redis.Client
@@ -48,106 +60,215 @@ func NewDB(client *redis.Client) *DB {
 	return &DB{client: client}
 }
 
-// Store derives the pubkey from each secret key (hex) and stores them in Redis in the HASH "leaked_keys".
-// Invalid secret keys are simply skipped. StoreLeaks returns the list of pubkeys that were added.
-func (db *DB) Store(ctx context.Context, secKeys []string, detectedAt time.Time) ([]string, error) {
-	if len(secKeys) == 0 {
+// Store derives the pubkey from each candidate secret key (hex) and stores them in Redis
+// as individual hashes "leak:<pubkey>" with fields status, detected_at, proof and secret.
+// Invalid secret keys are simply skipped. Store returns the list of pubkeys that were added.
+func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time) ([]string, error) {
+	if len(seckeys) == 0 {
 		return nil, nil
 	}
+	seckeys = slicex.Unique(seckeys)
 
-	pubkeys := make([]string, 0, len(secKeys))
-	cmds := make([]*redis.BoolCmd, 0, len(secKeys))
+	type entry struct {
+		pk  string
+		sk  string
+		cmd *redis.BoolCmd
+	}
+
+	entries := make([]entry, 0, len(seckeys))
 	pipe := db.client.Pipeline()
 
-	for _, sk := range secKeys {
+	for _, sk := range seckeys {
 		pk, err := nostr.GetPublicKey(sk)
 		if err != nil {
 			continue
 		}
-
-		pubkeys = append(pubkeys, pk)
-		cmds = append(cmds, pipe.HSetNX(ctx, keyLeakedKeys, pk, keyTime(sk, detectedAt)))
+		// store the command so we know if "secret" field was already set.
+		// In that case we won't update the hash, preferring to keep the existing value.
+		cmd := pipe.HSetNX(ctx, Key(pk), "secret", sk)
+		entries = append(entries, entry{pk: pk, sk: sk, cmd: cmd})
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return nil, fmt.Errorf("failed to store leaked keys: %w", err)
 	}
 
-	addedPks := make([]string, 0, len(pubkeys))
-	for i := range cmds {
-		added := cmds[i].Val()
-		if added {
-			addedPks = append(addedPks, pubkeys[i])
+	addedPks := make([]string, 0, len(entries))
+	unix := strconv.FormatInt(detectedAt.Unix(), 10)
+	pipe = db.client.Pipeline()
+
+	for _, e := range entries {
+		if !e.cmd.Val() {
+			// "secret" field was already set, so we won't update the metadata.
+			continue
+		}
+
+		addedPks = append(addedPks, e.pk)
+		proof, err := proof(e.sk, e.pk)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign proof for %s: %w", e.pk, err)
+		}
+
+		pipe.HSet(ctx, Key(e.pk),
+			"status", string(Confirmed),
+			"detected_at", unix,
+			"proof", proof,
+		)
+	}
+
+	if len(addedPks) > 0 {
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("failed to store leaked key metadata: %w", err)
 		}
 	}
 	return addedPks, nil
 }
 
-// Read returns the secret key and detection time for the given pubkey.
+// Read returns the leak record for the given pubkey.
 // If no record is found, it returns ErrNotFound.
-func (db *DB) Read(ctx context.Context, pubkey string) (string, time.Time, error) {
-	val, err := db.client.HGet(ctx, keyLeakedKeys, pubkey).Result()
-	if errors.Is(err, redis.Nil) {
-		return "", time.Time{}, ErrNotFound
-	}
+func (db *DB) Read(ctx context.Context, pubkey string) (Record, error) {
+	fields, err := db.client.HGetAll(ctx, Key(pubkey)).Result()
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to read leaked key: %w", err)
+		return Record{}, fmt.Errorf("failed to read leaked key: %w", err)
+	}
+	if len(fields) == 0 {
+		return Record{}, ErrNotFound
 	}
 
-	sk, t, err := parseKeyTime(val)
+	r, err := parseRecord(pubkey, fields)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to parse leaked key: %w", err)
+		return Record{}, fmt.Errorf("failed to parse leak record for %s: %w", pubkey, err)
 	}
-	return sk, t, nil
+	return r, nil
 }
 
 // Record represents a leaked key record.
+// It doesn't include the seckey, only the pubkey and metadata.
 type Record struct {
 	Pubkey     string
-	Seckey     string
 	DetectedAt time.Time
+	Status     Status
+	Proof      string
 }
 
 // Validate returns an error if the record is invalid.
-// E.g. pubkey is invalid or doesn't match the seckey.
+// It checks the pubkey format, the status, and verifies the proof signature.
 func (r Record) Validate() error {
-	if len(r.Pubkey) != 64 || !nostr.IsValidPublicKey(r.Pubkey) {
-		return fmt.Errorf("invalid pubkey")
+	if r.Status == Suspected {
+		if len(r.Pubkey) != 64 || !nostr.IsValidPublicKey(r.Pubkey) {
+			return fmt.Errorf("invalid pubkey: %s", r.Pubkey)
+		}
+		return nil
 	}
-	if len(r.Seckey) != 64 || !nostr.IsValid32ByteHex(r.Seckey) {
-		return fmt.Errorf("invalid seckey")
+
+	if r.Status != Confirmed {
+		return fmt.Errorf("invalid status: %q", r.Status)
 	}
-	derivedPk, err := nostr.GetPublicKey(r.Seckey)
+
+	pkBytes, err := hex.DecodeString(r.Pubkey)
 	if err != nil {
-		return fmt.Errorf("failed to derive pubkey from seckey: %w", err)
+		return fmt.Errorf("invalid pubkey hex: %w", err)
 	}
-	if derivedPk != r.Pubkey {
-		return fmt.Errorf("pubkey doesn't match seckey")
+	pubKey, err := schnorr.ParsePubKey(pkBytes)
+	if err != nil {
+		return fmt.Errorf("invalid pubkey: %w", err)
+	}
+	sigBytes, err := hex.DecodeString(r.Proof)
+	if err != nil {
+		return fmt.Errorf("invalid proof hex: %w", err)
+	}
+	sig, err := schnorr.ParseSignature(sigBytes)
+	if err != nil {
+		return fmt.Errorf("invalid proof signature: %w", err)
+	}
+	hash := sha256.Sum256([]byte(ProofMessage(r.Pubkey)))
+	if !sig.Verify(hash[:], pubKey) {
+		return fmt.Errorf("proof verification failed")
 	}
 	return nil
 }
 
-// All returns all leak records from the database. The order or records is non-deterministic.
+// All returns all leak records from the database. The order of records is non-deterministic.
 func (db *DB) All(ctx context.Context) ([]Record, error) {
-	result, err := db.client.HGetAll(ctx, keyLeakedKeys).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get all leaked keys: %w", err)
+	var cursor uint64
+	var keys []string
+	for {
+		var batch []string
+		var err error
+		batch, cursor, err = db.client.Scan(ctx, cursor, keyLeak+"*", 100).Result()
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan leaked keys: %w", err)
+		}
+		keys = append(keys, batch...)
+		if cursor == 0 {
+			break
+		}
 	}
 
-	records := make([]Record, 0, len(result))
-	for pk, val := range result {
-		sk, t, err := parseKeyTime(val)
+	records := make([]Record, 0, len(keys))
+	for _, key := range keys {
+		pk := strings.TrimPrefix(key, keyLeak)
+		fields, err := db.client.HGetAll(ctx, key).Result()
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse leaked key: %w", err)
+			return nil, fmt.Errorf("failed to read leaked key %s: %w", key, err)
 		}
-
-		records = append(records, Record{
-			Pubkey:     pk,
-			Seckey:     sk,
-			DetectedAt: t,
-		})
+		if len(fields) == 0 {
+			continue
+		}
+		r, err := parseRecord(pk, fields)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse leak record for %s: %w", pk, err)
+		}
+		records = append(records, r)
 	}
 	return records, nil
+}
+
+// parseRecord builds a Record from a Redis hash fields map.
+// status is the only required field; all others default to their zero value if absent.
+func parseRecord(pubkey string, fields map[string]string) (Record, error) {
+	statusStr, ok := fields["status"]
+	if !ok {
+		return Record{}, errors.New("missing field: status")
+	}
+	status := Status(statusStr)
+	if status != Confirmed && status != Suspected {
+		return Record{}, fmt.Errorf("invalid status value: %q", statusStr)
+	}
+
+	var detectedAt time.Time
+	if detectedAtStr, ok := fields["detected_at"]; ok {
+		unix, err := strconv.ParseInt(detectedAtStr, 10, 64)
+		if err != nil {
+			return Record{}, fmt.Errorf("invalid detected_at value: %w", err)
+		}
+		detectedAt = time.Unix(unix, 0)
+	}
+
+	return Record{
+		Pubkey:     pubkey,
+		DetectedAt: detectedAt,
+		Status:     status,
+		Proof:      fields["proof"],
+	}, nil
+}
+
+// proof signs the message "[ProofMessage]<pubkey>" with the given secret key
+// using Schnorr and returns the hex-encoded signature.
+func proof(seckey, pubkey string) (string, error) {
+	msg := ProofMessage(pubkey)
+	hash := sha256.Sum256([]byte(msg))
+
+	skBytes, err := hex.DecodeString(seckey)
+	if err != nil {
+		return "", fmt.Errorf("invalid secret key hex: %w", err)
+	}
+	privKey, _ := btcec.PrivKeyFromBytes(skBytes)
+	sig, err := schnorr.Sign(privKey, hash[:], schnorr.FastSign())
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sig.Serialize()), nil
 }
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)

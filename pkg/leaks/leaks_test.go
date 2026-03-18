@@ -9,35 +9,180 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var (
+	ctx         = context.Background()
+	testAddress = "localhost:6380"
+
+	seckey = "64719d406ec238fb1eb0ae38e1619b7919836d66efdc65353a2f8a68f51dcf6c"
+	pubkey = "d45aaa6518d4781febb7e7678a71c8679e6ef425b34ed328814ff7ff0fcb6e51"
+)
+
+func TestValidate(t *testing.T) {
+	validProof, err := proof(seckey, pubkey)
+	if err != nil {
+		t.Fatalf("failed to generate proof: %v", err)
+	}
+
+	confirmedRecord := Record{
+		Pubkey:     pubkey,
+		DetectedAt: time.Now(),
+		Status:     Confirmed,
+		Proof:      validProof,
+	}
+
+	suspectedRecord := Record{
+		Pubkey: pubkey,
+		Status: Suspected,
+	}
+
+	tests := []struct {
+		name    string
+		record  Record
+		isValid bool
+	}{
+		{
+			name:    "valid confirmed record",
+			record:  confirmedRecord,
+			isValid: true,
+		},
+		{
+			name:    "valid suspected record",
+			record:  suspectedRecord,
+			isValid: true,
+		},
+		{
+			name:    "invalid pk suspected record",
+			record:  Record{Pubkey: "invalid", Status: Suspected},
+			isValid: false,
+		},
+		{
+			name:    "empty proof fails",
+			record:  Record{Pubkey: pubkey, Status: Confirmed, Proof: ""},
+			isValid: false,
+		},
+		{
+			name: "tampered proof fails",
+			record: Record{
+				Pubkey: pubkey,
+				Status: Confirmed,
+				// flip the last byte of a valid proof
+				Proof: validProof[:len(validProof)-2] + "00",
+			},
+			isValid: false,
+		},
+		{
+			name: "proof for wrong pubkey fails",
+			record: Record{
+				// swap in a different pubkey that doesn't match the proof
+				Pubkey: "b94f6f125c79e46f9100ce6f39e4be8b3e4e2f0bbeacff9e5a5b1bfae3be1f2a",
+				Status: Confirmed,
+				Proof:  validProof,
+			},
+			isValid: false,
+		},
+		{
+			name:    "invalid status fails",
+			record:  Record{Pubkey: pubkey, Status: "unknown", Proof: validProof},
+			isValid: false,
+		},
+		{
+			name:    "invalid pubkey fails",
+			record:  Record{Pubkey: "notahex", Status: Confirmed, Proof: validProof},
+			isValid: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.record.Validate()
+			if test.isValid && err != nil {
+				t.Errorf("Validate() expected no error, got %v", err)
+			}
+			if !test.isValid && err == nil {
+				t.Errorf("Validate() expected error, got nil")
+			}
+		})
+	}
+}
+
 func TestStoreRead(t *testing.T) {
-	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{Addr: "localhost:6380"})
-	t.Cleanup(func() { client.Close() })
+	redis := redis.NewClient(&redis.Options{Addr: testAddress})
+	defer redis.FlushAll(ctx)
 
-	db := NewDB(client)
-
-	sk := "14bf2f082a2b6f62a9229972b5cd76ea0ae693a6e711bdee7e42d99f1be05f02"
+	db := NewDB(redis)
 	detectedAt := time.Unix(time.Now().Unix(), 0) // truncate to seconds
 
-	addedPks, err := db.Store(ctx, []string{sk}, detectedAt)
+	addedPks, err := db.Store(ctx, []string{seckey}, detectedAt)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
 	}
 	if len(addedPks) != 1 {
 		t.Fatalf("expected 1 added pubkey, got %d", len(addedPks))
 	}
-	pk := addedPks[0]
-	t.Cleanup(func() { client.HDel(ctx, keyLeakedKeys, pk) })
 
-	gotSK, gotTime, err := db.Read(ctx, pk)
+	pk := addedPks[0]
+	if pk != pubkey {
+		t.Errorf("expected pubkey %s, got %s", pubkey, pk)
+	}
+
+	record, err := db.Read(ctx, pk)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if gotSK != sk {
-		t.Errorf("secret key: want %q, got %q", sk, gotSK)
+	if !record.DetectedAt.Equal(detectedAt) {
+		t.Errorf("time: want %v, got %v", detectedAt, record.DetectedAt)
 	}
-	if !gotTime.Equal(detectedAt) {
-		t.Errorf("time: want %v, got %v", detectedAt, gotTime)
+	if record.Status != Confirmed {
+		t.Errorf("status: want %q, got %q", Confirmed, record.Status)
+	}
+	if err := record.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+}
+
+func TestStoreIdempotency(t *testing.T) {
+	redis := redis.NewClient(&redis.Options{Addr: testAddress})
+	defer redis.FlushAll(ctx)
+
+	db := NewDB(redis)
+	detectedAt := time.Unix(time.Now().Unix(), 0)
+
+	// first Store: should add the key
+	addedPks, err := db.Store(ctx, []string{seckey}, detectedAt)
+	if err != nil {
+		t.Fatalf("first Store: %v", err)
+	}
+	if len(addedPks) != 1 {
+		t.Fatalf("first Store: expected 1 added pubkey, got %d", len(addedPks))
+	}
+
+	pk := addedPks[0]
+	if pk != pubkey {
+		t.Errorf("expected pubkey %s, got %s", pubkey, pk)
+	}
+
+	first, err := db.Read(ctx, pk)
+	if err != nil {
+		t.Fatalf("Read after first Store: %v", err)
+	}
+
+	// second Store: same key, later time — should be a no-op
+	later := detectedAt.Add(time.Hour)
+	addedPks, err = db.Store(ctx, []string{seckey}, later)
+	if err != nil {
+		t.Fatalf("second Store: %v", err)
+	}
+	if len(addedPks) != 0 {
+		t.Fatalf("second Store: expected 0 added pubkeys, got %d", len(addedPks))
+	}
+
+	second, err := db.Read(ctx, pk)
+	if err != nil {
+		t.Fatalf("Read after second Store: %v", err)
+	}
+
+	if !reflect.DeepEqual(first, second) {
+		t.Errorf("record changed after second Store: want %+v, got %+v", first, second)
 	}
 }
 
