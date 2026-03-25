@@ -186,7 +186,7 @@ func TestStoreIdempotency(t *testing.T) {
 	}
 }
 
-func TestParseNsecs(t *testing.T) {
+func TestParseUnique(t *testing.T) {
 	key1 := "14bf2f082a2b6f62a9229972b5cd76ea0ae693a6e711bdee7e42d99f1be05f02"
 	nsec1 := "nsec1zjlj7zp29dhk92fzn9ettntkag9wdyaxuugmmmn7gtve7xlqtupqwtyx8z"
 	key2 := "d880730420eabec21785a12ae141246e3f39691a6867baec8c4d6a48aaa70881"
@@ -345,7 +345,7 @@ func TestParseNsecs(t *testing.T) {
 		{
 			name:    "nsec with invalid checksum same length should be rejected",
 			message: "fake nsec1zjlj7zp29dhk92fzn9ettntkag9wdyaxuugmmmn7gtve7xlqtupqwtyx8y",
-			keys:    []string{},
+			keys:    nil,
 		},
 		{
 			name:    "two valid nsecs separated by punctuation only",
@@ -472,20 +472,20 @@ func TestParseNsecs(t *testing.T) {
 			// nip19.Decode accepts it, but ParseNsecs rejects it because the derived pubkey is invalid.
 			name:    "all-zero scalar: valid bech32, invalid secp256k1 key",
 			message: "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwkhnav",
-			keys:    []string{},
+			keys:    nil,
 		},
 		{
 			// nsec encoding of the curve order n (k=n): valid bech32, invalid secp256k1 scalar.
 			// nip19.Decode accepts it, but ParseNsecs rejects it because the derived pubkey is invalid.
 			name:    "k=n scalar: valid bech32, invalid secp256k1 key",
 			message: "nsec1lllllllllllllllllllllllll6a2ah8x4ay2qwal6f0ge5pkg9qstu3zum",
-			keys:    []string{},
+			keys:    nil,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := ParseNsecs(test.message)
+			got := ParseUnique(test.message)
 			if !reflect.DeepEqual(got, test.keys) {
 				t.Fatalf("expected %v, got %v", test.keys, got)
 			}

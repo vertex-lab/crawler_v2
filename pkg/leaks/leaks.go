@@ -272,9 +272,15 @@ func proof(seckey, pubkey string) (string, error) {
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)
 
-// ParseNsecs returns all valid hex secret keys encoded in the message as nip19 "nsec" values.
+// ParseUnique returns all valid hex secret keys encoded in the message as nip19 "nsec" values.
 // Resulting secret keys are deduplicated.
-func ParseNsecs(message string) []string {
+func ParseUnique(message string) []string {
+	return slicex.Unique(Parse(message))
+}
+
+// Parse returns all valid hex secret keys encoded in the message as nip19 "nsec" values.
+// Resulting secret keys are not deduplicated. For that, call [ParseUnique] instead.
+func Parse(message string) []string {
 	if !Found(message) {
 		return nil
 	}
@@ -300,7 +306,7 @@ func ParseNsecs(message string) []string {
 
 		keys = append(keys, sk)
 	}
-	return slicex.Unique(keys)
+	return keys
 }
 
 // nsecPermutations contains all possible upper/lower case permutations of the "nsec1" prefix.
