@@ -46,22 +46,6 @@ var (
 	)
 )
 
-const (
-	MaxTags    = 50_000
-	MaxContent = 1_000_000
-)
-
-// EventTooBig returns an error if the event is too big.
-func EventTooBig(e *nostr.Event) error {
-	if len(e.Tags) > MaxTags {
-		return fmt.Errorf("event with ID %s has too many tags: %d", e.ID, len(e.Tags))
-	}
-	if len(e.Content) > MaxContent {
-		return fmt.Errorf("event with ID %s has too much content: %d", e.ID, len(e.Content))
-	}
-	return nil
-}
-
 // InitGraph by adding and promoting the provided pubkeys.
 func InitGraph(ctx context.Context, db regraph.DB, pubkeys []string) error {
 	if len(pubkeys) == 0 {

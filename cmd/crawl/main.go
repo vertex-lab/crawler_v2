@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/vertex-lab/crawler_v2/pkg/config"
+	"github.com/vertex-lab/crawler_v2/pkg/events"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe/arbiter"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe/engine"
@@ -53,7 +54,7 @@ func main() {
 
 	store, err := store.New(
 		config.SqlitePath,
-		sqlite.WithEventPolicy(pipe.EventTooBig),
+		sqlite.WithEventPolicy(events.TooBig),
 	)
 	if err != nil {
 		panic(err)
