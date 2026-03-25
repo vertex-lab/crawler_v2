@@ -2,6 +2,7 @@ package store
 
 import (
 	_ "embed"
+	"time"
 
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 )
@@ -13,6 +14,7 @@ func New(path string, options ...sqlite.Option) (*sqlite.Store, error) {
 	options = append(
 		options,
 		sqlite.WithAdditionalSchema(schema),
+		sqlite.WithBusyTimeout(10*time.Second),
 		sqlite.WithCacheSize(256*sqlite.MiB),
 	)
 	return sqlite.New(path, options...)
