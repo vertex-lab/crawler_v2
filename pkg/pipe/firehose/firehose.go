@@ -9,7 +9,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/vertex-lab/crawler_v2/pkg/leaks"
+	"github.com/vertex-lab/crawler_v2/pkg/events"
 	"github.com/vertex-lab/crawler_v2/pkg/relays"
 )
 
@@ -126,7 +126,7 @@ func LeakPolicy() Policy {
 type leakPolicy struct{}
 
 func (p leakPolicy) Allow(ctx context.Context, e *nostr.Event) bool {
-	return leaks.Found(e.Content)
+	return events.ContainsLeak(e)
 }
 
 // OrPolicy is a [Policy] that allows an event if any of the given policies allow it.

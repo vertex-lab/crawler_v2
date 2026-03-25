@@ -15,11 +15,11 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
+	"github.com/vertex-lab/crawler_v2/pkg/events"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/leaks"
 	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
-	"github.com/vertex-lab/crawler_v2/pkg/relays"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
 )
@@ -200,7 +200,7 @@ func (e *T) processIngest(event *nostr.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
-	if leaks.Found(event.Content) {
+	if events.ContainsLeak(event) {
 		// found a candidate leak
 		if err := e.updateLeaks(ctx, event); err != nil {
 			logErrEvent(err, event)
@@ -230,7 +230,7 @@ func (e *T) processIngest(event *nostr.Event) {
 		}
 
 		if replaced && e.After.RelaysDiscovered != nil {
-			relays := ParseRelays(event)
+			relays := events.ParseRelays(event.Tags)
 			if err := e.After.RelaysDiscovered(relays...); err != nil {
 				logErrEvent(err, event)
 			}
@@ -250,7 +250,7 @@ func (e *T) processSync(event *nostr.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
-	if leaks.Found(event.Content) {
+	if events.ContainsLeak(event) {
 		// found a candidate leak
 		if err := e.updateLeaks(ctx, event); err != nil {
 			logErrEvent(err, event)
@@ -282,9 +282,9 @@ func (e *T) archive(ctx context.Context, event *nostr.Event) error {
 	}
 }
 
-// updateLeaks updates the leaks database with any leaked keys found in the event content.
+// updateLeaks updates the leaks database with any leaked keys found in the event.
 func (e *T) updateLeaks(ctx context.Context, event *nostr.Event) error {
-	seckeys := leaks.ParseNsecs(event.Content)
+	seckeys := events.ParseLeaks(event)
 	if len(seckeys) == 0 {
 		return nil
 	}
@@ -380,7 +380,9 @@ func (e *T) computeDelta(ctx context.Context, event *nostr.Event) (graph.Delta, 
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
 	}
 
-	pubkeys := ParsePubkeys(event)
+	pubkeys := events.ParseTags("p", event.Tags)
+	pubkeys = slicex.Exclude(pubkeys, event.PubKey)
+
 	nodes, err := e.graph.NodeIDs(ctx, pubkeys...)
 	if err != nil {
 		return graph.Delta{}, fmt.Errorf("failed to compute delta: %w", err)
@@ -448,54 +450,6 @@ func (e *T) updateWalks(ctx context.Context, delta graph.Delta) error {
 		}
 	}
 	return nil
-}
-
-// ParsePubkeys parses unique pubkeys (excluding author) from the "p" tags in the event.
-// Pubkeys are not validated.
-func ParsePubkeys(e *nostr.Event) []string {
-	size := min(len(e.Tags), pipe.MaxTags)
-	pubkeys := make([]string, 0, size)
-
-	for _, tag := range e.Tags {
-		if len(pubkeys) > pipe.MaxTags {
-			break
-		}
-
-		if len(tag) < 2 {
-			continue
-		}
-
-		prefix, pubkey := tag[0], tag[1]
-		if prefix != "p" {
-			continue
-		}
-
-		if pubkey == e.PubKey {
-			// remove self-follows
-			continue
-		}
-		pubkeys = append(pubkeys, pubkey)
-	}
-	return slicex.Unique(pubkeys)
-}
-
-// ParseRelays parses unique and valid relay URLs from the "r" tags in the event.
-func ParseRelays(e *nostr.Event) []string {
-	size := min(len(e.Tags), pipe.MaxTags)
-	urls := make([]string, 0, size)
-
-	for _, tag := range e.Tags {
-		if len(tag) < 2 || tag[0] != "r" {
-			continue
-		}
-
-		url := tag[1]
-		if err := relays.ValidateURL(url); err != nil {
-			continue
-		}
-		urls = append(urls, url)
-	}
-	return slicex.Unique(urls)
 }
 
 // logErrEvent logs an error event if the error is not context.Canceled.
