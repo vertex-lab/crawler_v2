@@ -293,10 +293,10 @@ func (e *T) updateLeaks(ctx context.Context, event *nostr.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to update leaks: %w", err)
 	}
-	slog.Info("found leaked keys", "event", event.ID, "total", len(seckeys), "filtered", len(filtered))
 	if len(filtered) == 0 {
 		return nil
 	}
+	slog.Info("found leaked keys", "event", event.ID, "total", len(seckeys), "filtered", len(filtered))
 
 	added, err := e.leaks.Store(ctx, filtered, time.Now())
 	if err != nil {

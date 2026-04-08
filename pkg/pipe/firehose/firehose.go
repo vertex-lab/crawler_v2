@@ -61,8 +61,8 @@ func (f *T) Run(ctx context.Context, forward func(*nostr.Event) error) {
 			if f.seen.Contains(e.ID) {
 				continue
 			}
-
 			f.seen.Add(e.ID, struct{}{})
+
 			if f.policy.Allow(ctx, e) {
 				if err := forward(e); err != nil {
 					slog.Error("Firehose: failed to forward", "error", err)
