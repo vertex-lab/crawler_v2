@@ -349,8 +349,16 @@ func (r *T) read() {
 			}
 
 		case "OK":
-			// this is in response to our AUTH message.
-			// We don't need to do anything with it yet.
+			ok, err := parseOK(decoder)
+			if err != nil {
+				r.log.Debug("failed to parse ok", "relay", r.url, "error", err)
+				continue
+			}
+
+			if !ok.Accepted {
+				// this is a failed auth attempt because there is no public method to publish any other event
+				r.log.Debug("failed to authenticate", "relay", r.url, "reason", ok.Reason)
+			}
 
 		case "NOTICE":
 			notice, err := parseNotice(decoder)
