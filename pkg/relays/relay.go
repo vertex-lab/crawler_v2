@@ -27,6 +27,7 @@ type T struct {
 	conn     *ws.Conn
 	requests chan Request
 
+	pubs *pubRouter
 	subs *subRouter
 	auth *auth.Handler
 	log  *slog.Logger
@@ -50,8 +51,9 @@ func New(ctx context.Context, url string, opts ...RelayOption) (*T, error) {
 
 	r := &T{
 		url:      url,
-		requests: make(chan Request, 100),
+		requests: make(chan Request, 1000),
 		settings: defaultRelaySettings(),
+		pubs:     newPubRouter(),
 		subs:     newRouter(true),
 		log:      slog.Default(),
 		done:     make(chan struct{}),
@@ -98,6 +100,7 @@ func (r *T) close(err error) {
 	if r.isClosing.CompareAndSwap(false, true) {
 		r.err = err
 		close(r.done)
+		r.pubs.Clear()
 		r.subs.Clear()
 	}
 }
@@ -236,6 +239,47 @@ func (r *T) Query(ctx context.Context, id string, filters ...nostr.Filter) ([]no
 	}
 }
 
+// Publish an event to the relay.
+// It returns an error if the relay rejects the event, or if the relay is disconnected.
+//
+// It is always recommended to use this method with a context timeout (e.g. 10s),
+// to avoid bad relays that never send an OK from blocking indefinitely.
+func (r *T) Publish(ctx context.Context, event *nostr.Event) error {
+	if r.isClosing.Load() {
+		return ErrDisconnected
+	}
+	if event == nil {
+		return errors.New("failed to publish: event is nil")
+	}
+
+	res := make(chan OK, 1)
+	if err := r.pubs.Add(event.ID, res); err != nil {
+		return fmt.Errorf("failed to publish: %w", err)
+	}
+	defer r.pubs.Remove(event.ID)
+
+	if err := r.send(Publish{Event: event}); err != nil {
+		return fmt.Errorf("failed to publish: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("failed to publish: %w", ctx.Err())
+
+	case <-r.done:
+		return fmt.Errorf("failed to publish: %w", ErrDisconnected)
+
+	case ok := <-res:
+		if !ok.Accepted {
+			return fmt.Errorf("failed to publish: relay rejected: %q", ok.Reason)
+		}
+		if ok.Reason != "" {
+			r.log.Debug("event accepted", "relay", r.url, "reason", ok.Reason)
+		}
+		return nil
+	}
+}
+
 // Send enqueues a request to be sent to the relay.
 // Returns an error if the relay is disconnected or the requests channel is full.
 func (r *T) send(request Request) error {
@@ -355,10 +399,21 @@ func (r *T) read() {
 				continue
 			}
 
-			if !ok.Accepted {
-				// this is a failed auth attempt because there is no public method to publish any other event
-				r.log.Debug("failed to authenticate", "relay", r.url, "reason", ok.Reason)
+			if r.pubs.Deliver(ok) {
+				// OK delivered to the associated publisher
+				continue
 			}
+
+			if r.auth != nil && ok.ID == r.auth.LastID() {
+				if !ok.Accepted {
+					r.log.Debug("failed to authenticate", "relay", r.url, "reason", ok.Reason)
+				} else {
+					r.log.Debug("managed to authenticate", "relay", r.url)
+				}
+				continue
+			}
+
+			r.log.Debug("received ok for unknown event", "relay", r.url, "id", ok.ID, "accepted", ok.Accepted, "reason", ok.Reason)
 
 		case "NOTICE":
 			notice, err := parseNotice(decoder)

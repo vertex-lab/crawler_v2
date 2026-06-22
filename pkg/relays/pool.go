@@ -39,7 +39,6 @@ type Pool struct {
 }
 
 // NewPool creates a new Pool with the given URLs and options.
-// The context is only used to establish the connections; it does not control the lifetime of the pool.
 // Call pool.Close to close all connections and free resources.
 func NewPool(urls []string, opts ...PoolOption) (*Pool, error) {
 	urls = slicex.Unique(urls)

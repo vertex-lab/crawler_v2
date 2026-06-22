@@ -23,6 +23,7 @@ type Handler struct {
 	url       string
 	challenge string
 	sk        string
+	lastID    string // ID of the last AUTH event produced
 }
 
 // NewHandler creates a new auth handler for the relay with the specified URL.
@@ -47,6 +48,13 @@ func (h *Handler) SetChallenge(challenge string) {
 	h.challenge = challenge
 }
 
+// LastID returns the ID of the last AUTH event sent to the relay.
+func (h *Handler) LastID() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lastID
+}
+
 func (h *Handler) Response() (nostr.Event, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -67,5 +75,6 @@ func (h *Handler) Response() (nostr.Event, error) {
 	if err := event.Sign(h.sk); err != nil {
 		return nostr.Event{}, fmt.Errorf("Response: %w", err)
 	}
+	h.lastID = event.ID
 	return event, nil
 }

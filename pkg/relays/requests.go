@@ -23,8 +23,16 @@ func (r Req) MarshalJSON() ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// Close represents a ["CLOSE", <subscriptionID>] message sent to a relay
-// to close an open subscription.
+// Publish represents a ["EVENT", <event>] message sent to a relay to publish an event.
+type Publish struct {
+	Event *nostr.Event
+}
+
+func (p Publish) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"EVENT", p.Event})
+}
+
+// Close represents a ["CLOSE", <subscriptionID>] message sent to a relay to close a subscription.
 type Close struct {
 	ID string
 }
@@ -33,8 +41,7 @@ func (c Close) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"CLOSE", c.ID})
 }
 
-// Auth represents a ["AUTH", <event>] message sent to a relay
-// to authenticate via NIP-42.
+// Auth represents a ["AUTH", <event>] message sent to a relay to authenticate via NIP-42.
 type Auth struct {
 	Event nostr.Event
 }

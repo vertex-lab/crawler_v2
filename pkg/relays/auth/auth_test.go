@@ -128,6 +128,10 @@ func TestResponse(t *testing.T) {
 			if event.Tags.FindWithValue("challenge", test.challenge) == nil {
 				t.Errorf("missing challenge tag %q", test.challenge)
 			}
+			if h.LastID() != event.ID {
+				t.Errorf("LastID = %s, want %s", h.LastID(), event.ID)
+			}
+
 		})
 	}
 }

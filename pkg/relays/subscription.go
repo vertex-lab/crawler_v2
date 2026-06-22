@@ -10,6 +10,11 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// Subscription represents a subscription to a relay.
+// Call [Events] to react to events as they arrive.
+// Call [EOSE] to react to an end of store events message.
+// Call [Done] to react to a subscription being closed.
+// Call [Close] to manually close the subscription.
 type Subscription struct {
 	id      string
 	filters nostr.Filters

@@ -24,6 +24,8 @@ var (
 	ErrFullSubChannel  = errors.New("subscription channel is full")
 	ErrInvalidSubMatch = errors.New("event does not match the subscription filters")
 	ErrClosedSub       = errors.New("subscription closed by the relay")
+
+	ErrDuplicatePub = errors.New("trying to publish the same event multiple times before it's been acknowledged by the relay")
 )
 
 // pool errors
