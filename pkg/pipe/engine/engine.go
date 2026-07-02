@@ -38,7 +38,7 @@ type T struct {
 	cache *walks.CachedWalker
 
 	store *sqlite.Store
-	leaks *leaks.DB
+	leaks leaks.DB
 
 	events chan *nostr.Event
 

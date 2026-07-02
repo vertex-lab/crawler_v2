@@ -1,15 +1,16 @@
 module github.com/vertex-lab/crawler_v2
 
-go 1.25
+go 1.25.5
 
 require (
+	github.com/Open-Ranking/go-sdk v0.1.0
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/goccy/go-json v0.10.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/joho/godotenv v1.5.1
-	github.com/nbd-wtf/go-nostr v0.52.0
+	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/pippellia-btc/slicex v0.2.6
 	github.com/redis/go-redis/v9 v9.8.0
 	github.com/vertex-lab/nostr-sqlite v0.6.1

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/Open-Ranking/go-sdk/compromise"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -21,17 +21,9 @@ import (
 )
 
 const (
-	// ProofMessage is the message that is signed by the secret key to prove the leak.
-	proofMessage = "vertex-proof-leak:"
-
 	// keyLeak is the prefix for all leak keys in Redis.
 	keyLeak = "leak:"
 )
-
-// ProofMessage returns the message that should be signed by the secret key to prove the leak.
-func ProofMessage(pk string) string {
-	return proofMessage + pk
-}
 
 // Key returns the Redis key for a given pubkey leak record.
 // It does not validate the pubkey format.
@@ -45,6 +37,7 @@ type Status string
 const (
 	// Confirmed means the leak has been verified with certainty.
 	Confirmed Status = "confirmed"
+
 	// Suspected means the leak has been detected but not yet verified.
 	Suspected Status = "suspected"
 )
@@ -56,14 +49,14 @@ type DB struct {
 	client *redis.Client
 }
 
-func NewDB(client *redis.Client) *DB {
-	return &DB{client: client}
+func NewDB(client *redis.Client) DB {
+	return DB{client: client}
 }
 
 // Store derives the pubkey from each candidate secret key (hex) and stores them in Redis
 // as individual hashes "leak:<pubkey>" with fields status, detected_at, proof and secret.
 // Invalid secret keys are simply skipped. Store returns the list of pubkeys that were added.
-func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time) ([]string, error) {
+func (db DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time) ([]string, error) {
 	if len(seckeys) == 0 {
 		return nil, nil
 	}
@@ -103,7 +96,7 @@ func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time)
 		}
 
 		addedPks = append(addedPks, e.pk)
-		proof, err := proof(e.sk, e.pk)
+		proof, err := compromise.MakeProof(e.sk)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign proof for %s: %w", e.pk, err)
 		}
@@ -125,7 +118,7 @@ func (db *DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time)
 
 // Read returns the leak record for the given pubkey.
 // If no record is found, it returns ErrNotFound.
-func (db *DB) Read(ctx context.Context, pubkey string) (Record, error) {
+func (db DB) Read(ctx context.Context, pubkey string) (Record, error) {
 	fields, err := db.client.HGetAll(ctx, Key(pubkey)).Result()
 	if err != nil {
 		return Record{}, fmt.Errorf("failed to read leaked key: %w", err)
@@ -180,7 +173,7 @@ func (r Record) Validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid proof signature: %w", err)
 	}
-	hash := sha256.Sum256([]byte(ProofMessage(r.Pubkey)))
+	hash := sha256.Sum256([]byte(compromise.ProofMessage(r.Pubkey)))
 	if !sig.Verify(hash[:], pubKey) {
 		return fmt.Errorf("proof verification failed")
 	}
@@ -250,24 +243,6 @@ func parseRecord(pubkey string, fields map[string]string) (Record, error) {
 		Status:     status,
 		Proof:      fields["proof"],
 	}, nil
-}
-
-// proof signs the message "[ProofMessage]<pubkey>" with the given secret key
-// using Schnorr and returns the hex-encoded signature.
-func proof(seckey, pubkey string) (string, error) {
-	msg := ProofMessage(pubkey)
-	hash := sha256.Sum256([]byte(msg))
-
-	skBytes, err := hex.DecodeString(seckey)
-	if err != nil {
-		return "", fmt.Errorf("invalid secret key hex: %w", err)
-	}
-	privKey, _ := btcec.PrivKeyFromBytes(skBytes)
-	sig, err := schnorr.Sign(privKey, hash[:], schnorr.FastSign())
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(sig.Serialize()), nil
 }
 
 var nsecRegex = regexp.MustCompile(`(?i)\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{58}\b`)

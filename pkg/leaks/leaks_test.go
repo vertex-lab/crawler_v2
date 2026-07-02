@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Open-Ranking/go-sdk/compromise"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,7 +19,7 @@ var (
 )
 
 func TestValidate(t *testing.T) {
-	validProof, err := proof(seckey, pubkey)
+	validProof, err := compromise.MakeProof(seckey)
 	if err != nil {
 		t.Fatalf("failed to generate proof: %v", err)
 	}
