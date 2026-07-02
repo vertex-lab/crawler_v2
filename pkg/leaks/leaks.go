@@ -119,19 +119,45 @@ func (db DB) Store(ctx context.Context, seckeys []string, detectedAt time.Time) 
 // Read returns the leak record for the given pubkey.
 // If no record is found, it returns ErrNotFound.
 func (db DB) Read(ctx context.Context, pubkey string) (Record, error) {
-	fields, err := db.client.HGetAll(ctx, Key(pubkey)).Result()
+	records, err := db.ReadMany(ctx, pubkey)
 	if err != nil {
-		return Record{}, fmt.Errorf("failed to read leaked key: %w", err)
+		return Record{}, err
 	}
-	if len(fields) == 0 {
+	if len(records) == 0 {
 		return Record{}, ErrNotFound
 	}
+	return records[0], nil
+}
 
-	r, err := parseRecord(pubkey, fields)
-	if err != nil {
-		return Record{}, fmt.Errorf("failed to parse leak record for %s: %w", pubkey, err)
+// ReadMany returns the leak record for each pubkey. Pubkeys with no record are
+// silently skipped, so the returned slice may be shorter than the input.
+func (db DB) ReadMany(ctx context.Context, pubkeys ...string) ([]Record, error) {
+	if len(pubkeys) == 0 {
+		return nil, nil
 	}
-	return r, nil
+
+	cmds := make([]*redis.MapStringStringCmd, len(pubkeys))
+	pipe := db.client.Pipeline()
+	for i, pk := range pubkeys {
+		cmds[i] = pipe.HGetAll(ctx, Key(pk))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, fmt.Errorf("failed to read leaked keys: %w", err)
+	}
+
+	records := make([]Record, 0, len(pubkeys))
+	for i, cmd := range cmds {
+		fields, err := cmd.Result()
+		if err != nil || len(fields) == 0 {
+			continue
+		}
+		r, err := parseRecord(pubkeys[i], fields)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse leak record for %s: %w", pubkeys[i], err)
+		}
+		records = append(records, r)
+	}
+	return records, nil
 }
 
 // Record represents a leaked key record.
