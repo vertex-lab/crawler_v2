@@ -18,7 +18,6 @@ import (
 	"github.com/vertex-lab/crawler_v2/pkg/events"
 	"github.com/vertex-lab/crawler_v2/pkg/graph"
 	"github.com/vertex-lab/crawler_v2/pkg/leaks"
-	"github.com/vertex-lab/crawler_v2/pkg/pipe"
 	"github.com/vertex-lab/crawler_v2/pkg/regraph"
 	"github.com/vertex-lab/crawler_v2/pkg/walks"
 	sqlite "github.com/vertex-lab/nostr-sqlite"
@@ -237,7 +236,7 @@ func (e *T) processIngest(event *nostr.Event) {
 		}
 
 	default:
-		if slices.Contains(pipe.ProfileKinds, event.Kind) {
+		if slices.Contains(e.config.ArchiveKinds, event.Kind) {
 			if err := e.archive(ctx, event); err != nil {
 				logErrEvent(err, event)
 			}

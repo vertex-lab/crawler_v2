@@ -49,6 +49,37 @@ You can copy the `.env.example` and modify it to fit your needs. Make sure to pl
 cp .env.example your/path/.env
 ```
 
+#### Custom event-kind coverage
+
+Three environment settings control different stages of ingestion:
+
+- `FIREHOSE_KINDS`: kinds subscribed to for live updates.
+- `FETCHER_KINDS`: kinds fetched for discovered/promoted pubkeys.
+- `ENGINE_ARCHIVE_KINDS`: kinds persisted in SQLite after ingestion gating.
+  Defaults to `0,3,10000,10002,10063`, preserving existing archival coverage.
+
+For example, a metadata index that also stores bookmarks and follow sets can use:
+
+```dotenv
+FIREHOSE_KINDS=0,3,10000,10001,10002,10063,30000
+FETCHER_KINDS=0,3,10000,10001,10002,10063,30000
+ENGINE_ARCHIVE_KINDS=0,3,10000,10001,10002,10063,30000
+```
+
+Setting the archive list replaces its default; it does not extend it. The list
+accepts persistent Nostr kinds in the range 0–65535; ephemeral kinds (20000–29999)
+are rejected. Follow lists (3) and relay lists (10002) are always stored and
+processed when received, even if omitted from the archive list, because they
+maintain the graph and relay discovery. Other kinds omitted from the list are
+not archived. Subscription/fetch filters remain independent so events can still
+be consumed without being stored.
+
+The existing trust gates and SQLite validation still apply. Regular events are
+saved, replaceable events retain the latest version, and addressable events are
+replaced by their `d` coordinate. Expanding coverage does not automatically
+backfill existing pubkeys or require resetting the graph. Sync mode continues
+to rebuild derived state from existing storage without archiving events.
+
 ### Step 4. Build
 
 Build the app you want to use.
